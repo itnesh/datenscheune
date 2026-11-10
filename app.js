@@ -1,5 +1,5 @@
 // Datenscheune - Zeiterfassung, Projekte, Rechnungen. Daten lokal oder in Firestore (datenscheune/main/...).
-const VERSION = '0.4.0';
+const VERSION = '0.5.0';
 
 /* ---------- Helfer ---------- */
 const $ = (s, el = document) => el.querySelector(s);
@@ -358,7 +358,7 @@ function vFirma(id) {
   return `<div class="head"><label class="logoup" title="Logo hochladen">${f.logo ? logoImg(f, 56) : `<span class="logoph">${IC.plus}<small>Logo</small></span>`}<input type="file" accept="image/png,image/jpeg,image/svg+xml" class="hidden" data-act="firmaLogo" data-f="${id}"></label><h1><a href="#/firmen" class="small" style="text-decoration:none">‹ Firmen</a><br>${esc(f.name)}<span class="sub">${esc(adrZeilen(f).join(', '))}${f.archiv ? ' · <span class="b">archiviert</span>' : ''}</span></h1><button class="btn" data-act="projektNeu" data-firma="${id}">+ Projekt</button>${ol.length ? `<button class="btn pri" data-act="rechnungNeu" data-firma="${id}">Rechnung erstellen</button>` : ''}${icBtn('trash', 'firmaDel', `data-id="${id}"`, 'Firma löschen')}</div>
   <div class="card"><h2>Firmendaten</h2>
     <div class="frow" style="grid-template-columns:2fr 1fr 2fr .7fr .8fr 1.4fr .6fr">${ff('Firmenname', 'name')}${ff('Stundensatz CHF', 'ansatz', 'number', 'step="0.05" min="0"')}${ff('Strasse', 'strasse')}${ff('Nr.', 'nr')}${ff('PLZ', 'plz')}${ff('Ort', 'ort')}${ff('Land', 'land', 'text', 'maxlength="2"')}</div>
-    <div class="frow" style="grid-template-columns:1fr 2fr">${ff('Web', 'web', 'url')}${fld('Notiz', `<textarea data-ff="notiz" data-f="${id}" rows="2">${esc(f.notiz || '')}</textarea>`)}</div>
+    <div class="frow">${fld('Notiz', `<textarea data-ff="notiz" data-f="${id}" rows="3">${esc(f.notiz || '')}</textarea>`)}</div>
     <div class="btns" style="align-items:center"><label class="chk"><input type="checkbox" data-ff="archiv" data-f="${id}" ${f.archiv ? 'checked' : ''}>archiviert</label>${f.logo ? '<button class="btn sm danger" data-act="firmaLogoDel" data-id="' + id + '">Logo entfernen</button>' : ''}<span class="small muted">Änderungen werden automatisch gespeichert. Logo: oben links anklicken.</span></div></div>
   <div class="kpis"><div class="kpi"><span>Stundensatz</span><b>${f.ansatz ? 'CHF ' + chf(num(f.ansatz)) : '-'}</b></div><div class="kpi"><span>Nicht verrechnet</span><b>CHF ${chf(ow)}</b><small>${hm(sumMin(ol))} h</small></div><div class="kpi"><span>Verrechnet total</span><b>CHF ${chf(rs.filter(r => r.status !== 'storniert').reduce((a, r) => a + num(r.total), 0))}</b></div></div>
   <div class="grid g2">
@@ -422,6 +422,13 @@ const NTYP = {
   Notiz: NI('<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/>')
 };
 const notizTyp = n => n.typ || (/^(call|telefon)/i.test(n.text) ? 'Call' : /^mail/i.test(n.text) ? 'Mail' : /teams/i.test(n.text) ? 'Teams' : /^(meeting|erster termin|termin)/i.test(n.text) ? 'Meeting' : 'Notiz');
+const LTYP = {
+  SharePoint: { c: 'sp', i: NI('<circle cx="10" cy="8" r="5"/><circle cx="16" cy="14" r="4"/><circle cx="9" cy="17" r="3"/>') },
+  Teams: { c: 'tm', i: NI('<rect x="2" y="6" width="13" height="12" rx="2"/><path d="M15 10l6-3v10l-6-3"/>') },
+  Andere: { c: '', i: NI('<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>') }
+};
+const linkTyp = u => { const n = /sharepoint\.com|onedrive|1drv\.ms/i.test(u) ? 'SharePoint' : /teams\.microsoft\.com|teams\.live\.com/i.test(u) ? 'Teams' : 'Andere'; return { n, ...LTYP[n] }; };
+const linkHost = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return u; } };
 const typOptions = sel => Object.keys(NTYP).map(t => `<option ${t === sel ? 'selected' : ''}>${t}</option>`).join('');
 
 function vProjekte() {
@@ -439,7 +446,7 @@ function vProjekt(id) {
   return `<div class="head">${logoImg(f, 52)}<h1><a href="#/projekte" class="small" style="text-decoration:none">‹ Projekte</a><br>${esc(p.name)}<span class="sub"><a href="#/firma/${f.id}">${esc(f.name || '?')}</a> · <span class="b ${STC[p.status] || ''}">${esc(p.status)}</span></span></h1>
     <button class="btn pri" data-act="logNeuP" data-id="${id}">+ Tätigkeit</button>${icBtn('trash', 'projektDel', `data-id="${id}"`, 'Projekt löschen')}</div>
   <div class="card"><h2>Projektdaten</h2>
-    <div class="frow" style="grid-template-columns:2fr 1.4fr 1.3fr 1fr 1fr 1fr">${fld('Projektname', `<input type="text" data-pf="name" data-p="${id}" value="${esc(p.name)}">`)}${fld('Firma', `<select data-pf="firmaId" data-p="${id}">${firmaOptions(p.firmaId)}</select>`)}${fld('Status', `<select data-pf="status" data-p="${id}">${STATUS.map(s => `<option ${s === p.status ? 'selected' : ''}>${s}</option>`).join('')}</select>`)}${fld('Stundensatz CHF', `<input type="number" step="0.05" min="0" data-pf="ansatz" data-p="${id}" value="${num(p.ansatz) || ''}" placeholder="Firma: ${chf(num(f.ansatz))}">`)}${fld('Von', `<input type="date" data-pf="start" data-p="${id}" value="${esc(p.start || '')}">`)}${fld('Bis', `<input type="date" data-pf="ende" data-p="${id}" value="${esc(p.ende || '')}">`)}</div>
+    <div class="frow" style="grid-template-columns:2fr 1.4fr 1.3fr 1fr">${fld('Projektname', `<input type="text" data-pf="name" data-p="${id}" value="${esc(p.name)}">`)}${fld('Firma', `<select data-pf="firmaId" data-p="${id}">${firmaOptions(p.firmaId)}</select>`)}${fld('Status', `<select data-pf="status" data-p="${id}">${STATUS.map(s => `<option ${s === p.status ? 'selected' : ''}>${s}</option>`).join('')}</select>`)}${fld('Stundensatz CHF', `<input type="number" step="0.05" min="0" data-pf="ansatz" data-p="${id}" value="${num(p.ansatz) || ''}" placeholder="Firma: ${chf(num(f.ansatz))}">`)}</div>
     ${fld('Beschreibung / Ziel', `<textarea data-pf="beschreibung" data-p="${id}" rows="2">${esc(p.beschreibung || '')}</textarea>`)}
     <div class="small muted" style="margin-top:6px">Änderungen werden automatisch gespeichert. Stundensatz leer = Standard der Firma.</div></div>
   <div class="kpis"><div class="kpi"><span>Stundensatz</span><b>CHF ${chf(ansatz(p))}</b><small>${num(p.ansatz) ? 'Projektansatz' : 'Standard der Firma'}</small></div><div class="kpi"><span>Stunden total</span><b>${hm(sumMin(ls))} h</b></div><div class="kpi"><span>Nicht verrechnet</span><b>CHF ${chf(ol.reduce((a, l) => a + logWert(l), 0))}</b><small>${hm(sumMin(ol))} h</small></div></div>
@@ -449,7 +456,7 @@ function vProjekt(id) {
     <div class="card"><div class="ch"><h2>Personen</h2>${icBtn('plus', 'personNeu', `data-p="${id}"`, 'Person hinzufügen')}</div>${pers.length || ext.length ? `<div class="list">${pers.map(k => kontaktLi(k, `data-act="kontaktEdit" data-firma="${f.id}" data-k="${k.id}"`, '', x('personRemove', k.id))).join('')}${ext.map(k => kontaktLi(k, `data-act="externEdit" data-p="${id}" data-k="${k.id}"`, ` <span class="b blue">${esc(k.org || 'extern')}</span>`, x('externRemove', k.id))).join('')}</div>` : '<div class="empty">Keine Personen</div>'}</div>
   </div>
   <div class="card"><h2>Links &amp; Dokumente</h2><form class="frow" data-form="linkAdd" data-p="${id}" style="grid-template-columns:1fr 2fr auto"><input type="text" name="titel" placeholder="Titel"><input type="url" name="url" placeholder="https://..."><button class="btn pri">+</button></form>
-    ${(p.links || []).length ? `<div class="list">${p.links.map(k => `<div class="li"><div class="grow"><a href="${esc(k.url)}" target="_blank" rel="noopener">${esc(k.titel || k.url)}</a>${k.titel ? ` <span class="small muted">${esc(k.url)}</span>` : ''}</div>${x('linkDel', k.id)}</div>`).join('')}</div>` : '<div class="empty">Keine Links</div>'}</div>
+    ${(p.links || []).length ? `<div class="list">${p.links.map(k => { const t = linkTyp(k.url); return `<div class="li"><span class="ntyp ${t.c}" title="${t.n}">${t.i}</span><div class="grow"><a href="${esc(k.url)}" target="_blank" rel="noopener" title="${esc(k.url)}">${esc(k.titel || linkHost(k.url))}</a><div class="small muted">${t.n}</div></div>${x('linkDel', k.id)}</div>`; }).join('')}</div>` : '<div class="empty">Keine Links</div>'}</div>
   <div class="card"><h2>Notizen / Protokolle</h2><form data-form="notizAdd" data-p="${id}"><div class="frow" style="grid-template-columns:140px 120px 1fr auto;align-items:start"><input type="date" name="datum" value="${today()}"><select name="typ">${typOptions('Meeting')}</select><textarea name="text" rows="2" placeholder="Protokoll, Notiz ..."></textarea><button class="btn pri">+</button></div></form>
     ${(p.notizen || []).length ? `<div class="list">${[...p.notizen].sort((a, b) => b.datum.localeCompare(a.datum)).map(n => { const t = notizTyp(n); return `<div class="li click" style="align-items:flex-start" data-act="notizEdit" data-p="${id}" data-t="${n.id}"><span class="ntyp" title="${t}">${NTYP[t]}</span><div style="width:84px" class="small"><b>${fmt(n.datum)}</b><div class="muted">${t}</div></div><div class="grow" style="white-space:pre-wrap">${esc(n.text)}</div></div>`; }).join('')}</div>` : ''}</div>
   <div class="card"><h2>Tätigkeiten</h2>${logTable(ls, false)}</div>`;

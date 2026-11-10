@@ -167,3 +167,5 @@ table.t{width:100%;border-collapse:collapse}
 .logoph small{font-size:10px}
 .logoup:hover .flogo,.logoup:hover .logoph{outline:2px solid var(--green2)}
 @media (max-width:1100px){.card .frow[style*="2fr 1fr 2fr"]{grid-template-columns:1fr 1fr!important}}
+
+.ntyp.sp{background:#E3F1F3;color:#036C70}.ntyp.tm{background:#E8E9F8;color:#4B53BC}
