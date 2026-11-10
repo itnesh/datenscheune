@@ -494,7 +494,7 @@ function notizSpeichern(pid, alt, o) {
   if (neu.some(x => !x.projektId)) { toast('Projekt in der Aufteilung wählen'); return false; }
   if (new Set(neu.map(x => x.projektId)).size !== neu.length) { toast('Projekt doppelt in der Aufteilung'); return false; }
   if (neu.some(x => x.pct <= 0) || neu.reduce((a, x) => a + x.pct, 0) !== 100) { toast('Aufteilung muss total 100% ergeben'); return false; }
-  const n = { ...(alt || {}), id: (alt && alt.id) || uid(), datum: o.datum || today(), typ: o.typ || 'Notiz', titel, text, logId: '' };
+  const n = { ...(alt || {}), id: (alt && alt.id) || uid(), datum: o.datum || today(), typ: o.typ || 'Notiz', titel, text, logId: '', verrechenbar: !!o.verrechenbar, minuten: min };
   const alt_ = alt ? anteileOf(alt, pid) : [];
   let rest = min;
   neu = neu.map((x, i) => {
@@ -518,7 +518,7 @@ function notizModal(pid, n) {
   const tot = logs.reduce((a, l) => a + l.minuten, 0), billed = logs.some(l => l.rechnungId);
   const ov = modal({
     title: 'Protokoll bearbeiten', wide: true,
-    body: `<div class="frow c4">${fld('Datum', inp('datum', n.datum, 'date'))}${fld('Art', `<select name="typ">${typOptions(notizTyp(n))}</select>`)}${fld('Dauer total', inp('dauer', tot ? hm(tot) : '', 'text', 'placeholder="0:30"'))}<label class="chk" style="align-self:end;padding-bottom:10px"><input type="checkbox" name="verrechenbar" ${!log || log.verrechenbar !== false ? 'checked' : ''}>verrechenbar</label></div>
+    body: `<div class="frow c4">${fld('Datum', inp('datum', n.datum, 'date'))}${fld('Art', `<select name="typ">${typOptions(notizTyp(n))}</select>`)}${fld('Dauer total', inp('dauer', tot ? hm(tot) : n.minuten === 0 ? '0:00' : '', 'text', 'placeholder="0:30"'))}<label class="chk" style="align-self:end;padding-bottom:10px"><input type="checkbox" name="verrechenbar" ${(log ? log.verrechenbar !== false : n.verrechenbar !== false) ? 'checked' : ''}>verrechenbar</label></div>
       <div class="frow">${fld('Titel (erscheint als Tätigkeit)', inp('titel', n.titel || ''))}</div>
       ${anteilBox(as.filter(a => a.pct > 0), (projekt(pid) || {}).firmaId)}
       <div class="frow" style="margin-top:10px">${fld('Protokoll / Details', `<textarea name="text" rows="8">${esc(n.text || '')}</textarea>`)}</div>
