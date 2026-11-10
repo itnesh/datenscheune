@@ -158,3 +158,6 @@ table.t{width:100%;border-collapse:collapse}
 .li.click:hover{background:#FAFAF7}
 .flogo{object-fit:contain;border-radius:10px;background:#fff;box-shadow:var(--shadow);flex:0 0 auto}
 .head .flogo{padding:4px}
+
+.ntyp{width:34px;height:34px;border-radius:10px;background:var(--greenT);color:var(--green);display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+@media (max-width:1100px){.card .frow[style*="2fr 1.5fr"]{grid-template-columns:1fr 1fr!important}}

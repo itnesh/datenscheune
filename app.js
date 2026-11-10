@@ -1,5 +1,5 @@
 // Datenscheune - Zeiterfassung, Projekte, Rechnungen. Daten lokal oder in Firestore (datenscheune/main/...).
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 
 /* ---------- Helfer ---------- */
 const $ = (s, el = document) => el.querySelector(s);
@@ -45,6 +45,7 @@ const STC = { Offen: 'green', 'On hold': 'warn', Abgeschlossen: '' };
 const ALT_STATUS = { Idee: 'Offen', Offeriert: 'Offen', Aktiv: 'Offen', Pausiert: 'On hold' };
 const IC = {
   edit: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+  trash: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>',
   plus: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>'
 };
 const icBtn = (ic, act, attrs = '', title = '') => `<button class="icb" data-act="${act}" ${attrs} title="${title}" aria-label="${title}">${IC[ic]}</button>`;
@@ -149,7 +150,7 @@ function migrieren() {
 /* ---------- Router ---------- */
 let rq = false;
 function schedule() { if (rq) return; rq = true; requestAnimationFrame(() => { rq = false; render(); }); }
-const UI = { logMonat: today().slice(0, 7), logFirma: '', logProjekt: '', logTag: '', logStatus: '', qa: { datum: today(), projektId: '', text: '', dauer: '', tags: '[]', verrechenbar: true }, pStatus: 'Offen', rStatus: '', spJahr: String(new Date().getFullYear()) };
+const UI = { logMonat: today().slice(0, 7), logFirma: '', logProjekt: '', logTag: '', logStatus: '', qa: { datum: today(), projektId: '', text: '', dauer: '', tags: '[]', verrechenbar: true }, pStatus: 'Offen', pFirma: '', rStatus: '', spJahr: String(new Date().getFullYear()) };
 
 function render() {
   if (mode === 'firebase' && !USER) return;
@@ -191,6 +192,13 @@ document.addEventListener('input', e => {
   if (t.classList && t.classList.contains('tagtxt')) { const box = t.closest('[data-tagin]'); let sel = []; try { sel = JSON.parse($('input[type=hidden]', box).value); } catch (x) { } const s = $('.sugg', box); s.outerHTML = tagInner(sel, t.value).match(/<div class="sugg">[\s\S]*<\/div>$/)[0]; }
   if (t.dataset && t.dataset.qa) UI.qa[t.dataset.qa] = t.type === 'checkbox' ? t.checked : t.value;
   if (t.dataset && t.dataset.ui) { UI[t.dataset.ui] = t.value; if (t.tagName === 'SELECT' || t.type === 'month') schedule(); }
+});
+document.addEventListener('change', e => {
+  const t = e.target; if (!t.dataset || !t.dataset.pf) return; const p = projekt(t.dataset.p); if (!p) return;
+  const k = t.dataset.pf, v = k === 'ansatz' ? num(t.value) : t.value.trim();
+  if (k === 'name' && !v) { toast('Projektname darf nicht leer sein'); t.value = p.name; return; }
+  if (k === 'firmaId' && !v) { t.value = p.firmaId; return; }
+  put('projekte', { ...p, [k]: v, ...(k === 'firmaId' ? { personen: [] } : {}) }); toast('Gespeichert');
 });
 document.addEventListener('change', e => { const t = e.target; if (t.dataset && t.dataset.ui) { UI[t.dataset.ui] = t.value; schedule(); } if (t.dataset && t.dataset.qa && t.type === 'checkbox') UI.qa[t.dataset.qa] = t.checked; });
 // Tags beim Verlassen übernehmen (falls nicht mit Enter bestätigt)
@@ -342,8 +350,8 @@ function vFirma(id) {
   </div>
   <div class="card"><h2>Rechnungen</h2>${rTable(rs)}</div>`;
 }
-function kontaktLi(k, attrs, extra = '') {
-  return `<div class="li click" ${attrs}><div class="grow"><b>${esc(k.name)}</b>${k.funktion ? ` <span class="muted">· ${esc(k.funktion)}</span>` : ''}${extra}<div class="small">${k.email ? `<a href="mailto:${esc(k.email)}">${esc(k.email)}</a>` : ''}${k.email && k.tel ? ' · ' : ''}${k.tel ? `<a href="tel:${esc(k.tel)}">${esc(k.tel)}</a>` : ''}</div>${k.notiz ? `<div class="small muted" style="white-space:pre-wrap;margin-top:2px">${esc(k.notiz)}</div>` : ''}</div></div>`;
+function kontaktLi(k, attrs, extra = '', rechts = '') {
+  return `<div class="li click" ${attrs}><div class="grow"><b>${esc(k.name)}</b>${k.funktion ? ` <span class="muted">· ${esc(k.funktion)}</span>` : ''}${extra}<div class="small">${k.email ? `<a href="mailto:${esc(k.email)}">${esc(k.email)}</a>` : ''}${k.email && k.tel ? ' · ' : ''}${k.tel ? `<a href="tel:${esc(k.tel)}">${esc(k.tel)}</a>` : ''}</div>${k.notiz ? `<div class="small muted" style="white-space:pre-wrap;margin-top:2px">${esc(k.notiz)}</div>` : ''}</div>${rechts}</div>`;
 }
 const personFelder = (k, firmaFeld = false) => `<div class="frow c2">${fld('Name', inp('name', k.name))}${firmaFeld ? fld('Firma / Organisation', inp('org', k.org)) : fld('Funktion', inp('funktion', k.funktion))}</div>
   ${firmaFeld ? `<div class="frow">${fld('Funktion / Rolle', inp('funktion', k.funktion))}</div>` : ''}
@@ -388,32 +396,69 @@ function firmaModal(f = {}) {
 }
 
 /* ---------- Projekte ---------- */
+const NI = p => `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
+const NTYP = {
+  Meeting: NI('<circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M15 14.5c3 0 6 1.8 6 5"/>'),
+  Teams: NI('<rect x="2" y="6" width="13" height="12" rx="2"/><path d="M15 10l6-3v10l-6-3"/>'),
+  Call: NI('<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.8 2.1z"/>'),
+  Mail: NI('<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 7l10 6 10-6"/>'),
+  Notiz: NI('<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/>')
+};
+const notizTyp = n => n.typ || (/^(call|telefon)/i.test(n.text) ? 'Call' : /^mail/i.test(n.text) ? 'Mail' : /teams/i.test(n.text) ? 'Teams' : /^(meeting|erster termin|termin)/i.test(n.text) ? 'Meeting' : 'Notiz');
+const typOptions = sel => Object.keys(NTYP).map(t => `<option ${t === sel ? 'selected' : ''}>${t}</option>`).join('');
+
 function vProjekte() {
-  const ps = S.projekte.filter(p => UI.pStatus === 'alle' || p.status === UI.pStatus)
+  const ps = S.projekte.filter(p => (UI.pStatus === 'alle' || p.status === UI.pStatus) && (!UI.pFirma || p.firmaId === UI.pFirma))
     .sort((a, b) => STATUS.indexOf(a.status) - STATUS.indexOf(b.status) || a.name.localeCompare(b.name, 'de'));
-  return `<div class="head"><h1>Projekte</h1><div class="seg">${[...STATUS.map(s => [s, s]), ['alle', 'Alle']].map(([v, t]) => `<button data-act="pStatus" data-v="${v}" class="${UI.pStatus === v ? 'on' : ''}">${t}</button>`).join('')}</div><button class="btn pri" data-act="projektNeu">+ Projekt</button></div>
-  ${ps.length ? `<div class="pcards">${ps.map(p => { const ls = S.logs.filter(l => l.projektId === p.id), td = (p.todos || []).filter(t => !t.erledigt).length; return `<a class="pcard" href="#/projekt/${p.id}"><span class="b ${STC[p.status] || ''}">${esc(p.status)}</span><h3>${esc(p.name)}</h3><div class="small muted">${esc(fName(p.firmaId))}</div><div class="meta"><span>${hm(sumMin(ls))} h total</span><span>${td} To-do${td === 1 ? '' : 's'}</span><span>CHF ${chf(ansatz(p))}/h</span></div></a>`; }).join('')}</div>` : '<div class="card empty">Keine Projekte</div>'}`;
+  return `<div class="head"><h1>Projekte</h1><select data-ui="pFirma" style="width:auto;min-width:180px">${firmaOptions(UI.pFirma, 'Alle Firmen')}</select><div class="seg">${[...STATUS.map(s => [s, s]), ['alle', 'Alle']].map(([v, t]) => `<button data-act="pStatus" data-v="${v}" class="${UI.pStatus === v ? 'on' : ''}">${t}</button>`).join('')}</div><button class="btn pri" data-act="projektNeu" data-firma="${UI.pFirma}">+ Projekt</button></div>
+  ${ps.length ? `<div class="pcards">${ps.map(p => { const ls = S.logs.filter(l => l.projektId === p.id), td = (p.todos || []).filter(t => !t.erledigt).length, f = pFirma(p); return `<a class="pcard" href="#/projekt/${p.id}"><div style="display:flex;justify-content:space-between;align-items:center"><span class="b ${STC[p.status] || ''}">${esc(p.status)}</span>${logoImg(f, 26)}</div><h3>${esc(p.name)}</h3><div class="small muted">${esc(fName(p.firmaId))}</div><div class="meta"><span>${hm(sumMin(ls))} h total</span><span>${td} To-do${td === 1 ? '' : 's'}</span><span>CHF ${chf(ansatz(p))}/h</span></div></a>`; }).join('')}</div>` : '<div class="card empty">Keine Projekte</div>'}`;
 }
 function vProjekt(id) {
   const p = projekt(id); if (!p) return '<div class="empty">Projekt nicht gefunden</div>';
   const f = pFirma(p) || {}, ls = S.logs.filter(l => l.projektId === id), ol = ls.filter(l => !l.rechnungId && l.verrechenbar !== false);
   const pers = (f.kontakte || []).filter(k => (p.personen || []).includes(k.id)), ext = p.externe || [];
   const todos = [...(p.todos || [])].sort((a, b) => (a.erledigt - b.erledigt) || ((a.faellig || '9999') < (b.faellig || '9999') ? -1 : 1));
-  const d = today();
-  return `<div class="head"><h1><a href="#/projekte" class="small" style="text-decoration:none">‹ Projekte</a><br>${esc(p.name)}<span class="sub"><a href="#/firma/${f.id}">${esc(f.name || '?')}</a> · <span class="b ${STC[p.status] || ''}">${esc(p.status)}</span>${p.start || p.ende ? ` · ${fmt(p.start)} - ${fmt(p.ende)}` : ''}</span></h1>
-    <button class="btn" data-act="projektEdit" data-id="${id}">Bearbeiten</button><button class="btn pri" data-act="logNeuP" data-id="${id}">+ Tätigkeit</button></div>
+  const d = today(), x = (act, t) => `<button class="btn sm ghost" data-act="${act}" data-p="${id}" data-t="${t}" title="Entfernen">✕</button>`;
+  return `<div class="head">${logoImg(f, 52)}<h1><a href="#/projekte" class="small" style="text-decoration:none">‹ Projekte</a><br>${esc(p.name)}<span class="sub"><a href="#/firma/${f.id}">${esc(f.name || '?')}</a> · <span class="b ${STC[p.status] || ''}">${esc(p.status)}</span></span></h1>
+    <button class="btn pri" data-act="logNeuP" data-id="${id}">+ Tätigkeit</button>${icBtn('trash', 'projektDel', `data-id="${id}"`, 'Projekt löschen')}</div>
   <div class="kpis"><div class="kpi"><span>Stundensatz</span><b>CHF ${chf(ansatz(p))}</b><small>${num(p.ansatz) ? 'Projektansatz' : 'Standard der Firma'}</small></div><div class="kpi"><span>Stunden total</span><b>${hm(sumMin(ls))} h</b></div><div class="kpi"><span>Nicht verrechnet</span><b>CHF ${chf(ol.reduce((a, l) => a + logWert(l), 0))}</b><small>${hm(sumMin(ol))} h</small></div></div>
-  ${p.beschreibung ? `<div class="card" style="white-space:pre-wrap">${esc(p.beschreibung)}</div>` : ''}
+  <div class="card"><h2>Projektdaten</h2>
+    <div class="frow" style="grid-template-columns:2fr 1.5fr 1fr 1fr 1fr 1fr">${fld('Projektname', `<input type="text" data-pf="name" data-p="${id}" value="${esc(p.name)}">`)}${fld('Firma', `<select data-pf="firmaId" data-p="${id}">${firmaOptions(p.firmaId)}</select>`)}${fld('Status', `<select data-pf="status" data-p="${id}">${STATUS.map(s => `<option ${s === p.status ? 'selected' : ''}>${s}</option>`).join('')}</select>`)}${fld('Stundensatz CHF', `<input type="number" step="0.05" min="0" data-pf="ansatz" data-p="${id}" value="${num(p.ansatz) || ''}" placeholder="Firma: ${chf(num(f.ansatz))}">`)}${fld('Von', `<input type="date" data-pf="start" data-p="${id}" value="${esc(p.start || '')}">`)}${fld('Bis', `<input type="date" data-pf="ende" data-p="${id}" value="${esc(p.ende || '')}">`)}</div>
+    ${fld('Beschreibung / Ziel', `<textarea data-pf="beschreibung" data-p="${id}" rows="2">${esc(p.beschreibung || '')}</textarea>`)}
+    <div class="small muted" style="margin-top:6px">Änderungen werden automatisch gespeichert. Stundensatz leer = Standard der Firma.</div></div>
   <div class="grid g2">
     <div class="card"><h2>To-dos</h2><form class="frow" data-form="todoAdd" data-p="${id}" style="grid-template-columns:1fr 140px auto"><input type="text" name="text" placeholder="Neues To-do"><input type="date" name="faellig"><button class="btn pri">+</button></form>
-      ${todos.length ? `<div class="list">${todos.map(t => `<div class="li ${t.erledigt ? 'done' : ''}"><input type="checkbox" data-act="todoToggle" data-p="${id}" data-t="${t.id}" ${t.erledigt ? 'checked' : ''}><div class="grow">${esc(t.text)}</div>${t.faellig ? `<span class="b ${!t.erledigt && t.faellig < d ? 'red' : ''}">${fmt(t.faellig)}</span>` : ''}<button class="btn sm ghost" data-act="todoDel" data-p="${id}" data-t="${t.id}">✕</button></div>`).join('')}</div>` : '<div class="empty">Keine To-dos</div>'}</div>
-    <div class="card"><div class="ch"><h2>Personen</h2>${icBtn('plus', 'externNeu', `data-p="${id}"`, 'Person manuell hinzufügen')}</div>${pers.length || ext.length ? `<div class="list">${pers.map(k => kontaktLi(k, `data-act="kontaktEdit" data-firma="${f.id}" data-k="${k.id}"`)).join('')}${ext.map(k => kontaktLi(k, `data-act="externEdit" data-p="${id}" data-k="${k.id}"`, ` <span class="b blue">${esc(k.org || 'extern')}</span>`)).join('')}</div>` : '<div class="empty">Keine Personen. Ansprechpartner der Firma unter "Bearbeiten" zuordnen, andere mit +</div>'}
-      <h2 style="margin-top:16px">Links &amp; Dokumente</h2><form class="frow" data-form="linkAdd" data-p="${id}" style="grid-template-columns:1fr 1.4fr auto"><input type="text" name="titel" placeholder="Titel"><input type="url" name="url" placeholder="https://..."><button class="btn pri">+</button></form>
-      ${(p.links || []).length ? `<div class="list">${p.links.map(k => `<div class="li"><div class="grow"><a href="${esc(k.url)}" target="_blank" rel="noopener">${esc(k.titel || k.url)}</a></div><button class="btn sm ghost" data-act="linkDel" data-p="${id}" data-t="${k.id}">✕</button></div>`).join('')}</div>` : ''}</div>
+      ${todos.length ? `<div class="list">${todos.map(t => `<div class="li ${t.erledigt ? 'done' : ''}"><input type="checkbox" data-act="todoToggle" data-p="${id}" data-t="${t.id}" ${t.erledigt ? 'checked' : ''}><div class="grow">${esc(t.text)}</div>${t.faellig ? `<span class="b ${!t.erledigt && t.faellig < d ? 'red' : ''}">${fmt(t.faellig)}</span>` : ''}${x('todoDel', t.id)}</div>`).join('')}</div>` : '<div class="empty">Keine To-dos</div>'}</div>
+    <div class="card"><div class="ch"><h2>Personen</h2>${icBtn('plus', 'personNeu', `data-p="${id}"`, 'Person hinzufügen')}</div>${pers.length || ext.length ? `<div class="list">${pers.map(k => kontaktLi(k, `data-act="kontaktEdit" data-firma="${f.id}" data-k="${k.id}"`, '', x('personRemove', k.id))).join('')}${ext.map(k => kontaktLi(k, `data-act="externEdit" data-p="${id}" data-k="${k.id}"`, ` <span class="b blue">${esc(k.org || 'extern')}</span>`, x('externRemove', k.id))).join('')}</div>` : '<div class="empty">Keine Personen</div>'}</div>
   </div>
-  <div class="card"><h2>Notizen / Protokolle</h2><form data-form="notizAdd" data-p="${id}"><div class="frow" style="grid-template-columns:140px 1fr auto;align-items:start"><input type="date" name="datum" value="${today()}"><textarea name="text" rows="2" placeholder="Notiz, Meeting-Protokoll ..."></textarea><button class="btn pri">+</button></div></form>
-    ${(p.notizen || []).length ? `<div class="list">${[...p.notizen].sort((a, b) => b.datum.localeCompare(a.datum)).map(n => `<div class="li" style="align-items:flex-start"><span class="small muted nowrap" style="width:80px">${fmt(n.datum)}</span><div class="grow" style="white-space:pre-wrap">${esc(n.text)}</div><button class="btn sm ghost" data-act="notizDel" data-p="${id}" data-t="${n.id}">✕</button></div>`).join('')}</div>` : ''}</div>
+  <div class="card"><h2>Links &amp; Dokumente</h2><form class="frow" data-form="linkAdd" data-p="${id}" style="grid-template-columns:1fr 2fr auto"><input type="text" name="titel" placeholder="Titel"><input type="url" name="url" placeholder="https://..."><button class="btn pri">+</button></form>
+    ${(p.links || []).length ? `<div class="list">${p.links.map(k => `<div class="li"><div class="grow"><a href="${esc(k.url)}" target="_blank" rel="noopener">${esc(k.titel || k.url)}</a>${k.titel ? ` <span class="small muted">${esc(k.url)}</span>` : ''}</div>${x('linkDel', k.id)}</div>`).join('')}</div>` : '<div class="empty">Keine Links</div>'}</div>
+  <div class="card"><h2>Notizen / Protokolle</h2><form data-form="notizAdd" data-p="${id}"><div class="frow" style="grid-template-columns:140px 120px 1fr auto;align-items:start"><input type="date" name="datum" value="${today()}"><select name="typ">${typOptions('Meeting')}</select><textarea name="text" rows="2" placeholder="Protokoll, Notiz ..."></textarea><button class="btn pri">+</button></div></form>
+    ${(p.notizen || []).length ? `<div class="list">${[...p.notizen].sort((a, b) => b.datum.localeCompare(a.datum)).map(n => { const t = notizTyp(n); return `<div class="li click" style="align-items:flex-start" data-act="notizEdit" data-p="${id}" data-t="${n.id}"><span class="ntyp" title="${t}">${NTYP[t]}</span><div style="width:84px" class="small"><b>${fmt(n.datum)}</b><div class="muted">${t}</div></div><div class="grow" style="white-space:pre-wrap">${esc(n.text)}</div></div>`; }).join('')}</div>` : ''}</div>
   <div class="card"><h2>Tätigkeiten</h2>${logTable(ls, false)}</div>`;
+}
+function notizModal(pid, n) {
+  modal({
+    title: 'Notiz / Protokoll bearbeiten', wide: true,
+    body: `<div class="frow c2">${fld('Datum', inp('datum', n.datum, 'date'))}${fld('Art', `<select name="typ">${typOptions(notizTyp(n))}</select>`)}</div><div class="frow">${fld('Text', `<textarea name="text" rows="10">${esc(n.text)}</textarea>`)}</div>`,
+    onSave: o => pListe(pid, 'notizen', l => l.map(x => x.id === n.id ? { ...x, datum: o.datum || x.datum, typ: o.typ, text: o.text } : x)),
+    onDelete: () => pListe(pid, 'notizen', l => l.filter(x => x.id !== n.id))
+  });
+}
+function personModal(pid) {
+  const p = projekt(pid); if (!p) return; const f = pFirma(p) || {};
+  const frei = (f.kontakte || []).filter(k => !(p.personen || []).includes(k.id));
+  const ov = modal({
+    title: 'Person hinzufügen', wide: true,
+    body: `<div class="frow">${fld('Person', `<select name="wahl" id="pmWahl">${frei.map(k => `<option value="${k.id}">${esc(k.name)}${k.funktion ? ' (' + esc(k.funktion) + ')' : ''} - ${esc(f.name)}</option>`).join('')}<option value="__neu" ${frei.length ? '' : 'selected'}>Andere Person (Freitext) ...</option></select>`)}</div>
+      <div id="pmFrei" class="${frei.length ? 'hidden' : ''}">${personFelder({}, true)}</div>`,
+    onSave: o => {
+      if (o.wahl !== '__neu') { pListe(pid, 'personen', l => l.includes(o.wahl) ? l : [...l, o.wahl]); return; }
+      if (!o.name) { toast('Name fehlt'); return false; }
+      pListe(pid, 'externe', l => [...l, { id: uid(), name: o.name, org: o.org, funktion: o.funktion, email: o.email, tel: o.tel, notiz: o.notiz }]);
+    }
+  });
+  $('#pmWahl', ov).onchange = e => $('#pmFrei', ov).classList.toggle('hidden', e.target.value !== '__neu');
 }
 function persBox(firmaId, sel = []) { const f = firma(firmaId); return f && (f.kontakte || []).length ? f.kontakte.map(k => `<label class="chk"><input type="checkbox" name="personen[]" value="${k.id}" ${sel.includes(k.id) ? 'checked' : ''}>${esc(k.name)}${k.funktion ? ` <span class="muted">(${esc(k.funktion)})</span>` : ''}</label>`).join('') : '<span class="small muted">Keine Ansprechpartner bei dieser Firma erfasst</span>'; }
 function projektModal(p = {}) {
@@ -687,13 +732,16 @@ document.addEventListener('click', e => {
     alleMonate: () => { UI.logMonat = UI.logMonat ? '' : today().slice(0, 7); schedule(); },
     firmaNeu: () => firmaModal(), firmaEdit: () => firmaModal(firma(id)),
     kontaktNeu: () => kontaktModal(b.dataset.firma), kontaktEdit: () => { if (e.target.closest('a')) return; const f = firma(b.dataset.firma); kontaktModal(b.dataset.firma, ((f && f.kontakte) || []).find(k => k.id === b.dataset.k)); },
-    externNeu: () => externModal(b.dataset.p), externEdit: () => { if (e.target.closest('a')) return; const p = projekt(b.dataset.p); externModal(b.dataset.p, ((p && p.externe) || []).find(k => k.id === b.dataset.k)); },
+    personNeu: () => personModal(b.dataset.p), externNeu: () => externModal(b.dataset.p),
+    personRemove: () => { e.stopPropagation(); pListe(b.dataset.p, 'personen', l => l.filter(x => x !== b.dataset.t)); },
+    externRemove: () => { e.stopPropagation(); if (confirm('Person entfernen?')) pListe(b.dataset.p, 'externe', l => l.filter(x => x.id !== b.dataset.t)); },
+    notizEdit: () => { const p = projekt(b.dataset.p); const n = p && (p.notizen || []).find(x => x.id === b.dataset.t); if (n) notizModal(b.dataset.p, n); },
+    projektDel: () => { const p = projekt(id); if (!p) return; if (S.logs.some(l => l.projektId === id)) return toast('Projekt hat Tätigkeiten - Status "Abgeschlossen" setzen statt löschen'); if (confirm('Projekt löschen?')) { del('projekte', id); location.hash = '#/projekte'; } }, externEdit: () => { if (e.target.closest('a')) return; const p = projekt(b.dataset.p); externModal(b.dataset.p, ((p && p.externe) || []).find(k => k.id === b.dataset.k)); },
     projektNeu: () => projektModal({ firmaId: b.dataset.firma || '' }), projektEdit: () => projektModal(projekt(id)),
     pStatus: () => { UI.pStatus = b.dataset.v; schedule(); }, rStatus: () => { UI.rStatus = b.dataset.v; schedule(); },
     todoToggle: () => pListe(b.dataset.p, 'todos', l => l.map(t => t.id === b.dataset.t ? { ...t, erledigt: !t.erledigt, erledigtAm: !t.erledigt ? today() : '' } : t)),
     todoDel: () => pListe(b.dataset.p, 'todos', l => l.filter(t => t.id !== b.dataset.t)),
     linkDel: () => pListe(b.dataset.p, 'links', l => l.filter(t => t.id !== b.dataset.t)),
-    notizDel: () => { if (confirm('Notiz löschen?')) pListe(b.dataset.p, 'notizen', l => l.filter(t => t.id !== b.dataset.t)); },
     spesenNeu: () => spesenModal(), spesenEdit: () => spesenModal(S.spesen.find(s => s.id === id)),
     rechnungNeu: () => rechnungNeu(b.dataset.firma || ''),
     rechnungEdit: () => rechnungEdit(S.rechnungen.find(r => r.id === id)),
@@ -715,7 +763,7 @@ document.addEventListener('submit', e => {
   const o = Object.fromEntries(new FormData(f)), pid = f.dataset.p;
   if (f.dataset.form === 'todoAdd' && o.text.trim()) pListe(pid, 'todos', l => [...l, { id: uid(), text: o.text.trim(), faellig: o.faellig || '', erledigt: false }]);
   if (f.dataset.form === 'linkAdd' && o.url.trim()) pListe(pid, 'links', l => [...l, { id: uid(), titel: o.titel.trim(), url: /^https?:\/\//.test(o.url.trim()) ? o.url.trim() : 'https://' + o.url.trim() }]);
-  if (f.dataset.form === 'notizAdd' && o.text.trim()) pListe(pid, 'notizen', l => [...l, { id: uid(), datum: o.datum || today(), text: o.text.trim() }]);
+  if (f.dataset.form === 'notizAdd' && o.text.trim()) pListe(pid, 'notizen', l => [...l, { id: uid(), datum: o.datum || today(), typ: o.typ || 'Notiz', text: o.text.trim() }]);
   if (f.dataset.form === 'settings') { const { logo, ...rest } = o; saveSet({ ...rest, iban: ibanClean(o.iban), frist: num(o.frist), mwstGrenze: num(o.mwstGrenze) }); toast('Gespeichert'); }
   document.activeElement && document.activeElement.blur(); schedule();
 });
