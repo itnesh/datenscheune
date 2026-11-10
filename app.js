@@ -1,5 +1,5 @@
 // Datenscheune - Zeiterfassung, Projekte, Rechnungen. Daten lokal oder in Firestore (datenscheune/main/...).
-const VERSION = '0.7.0';
+const VERSION = '0.8.0';
 
 /* ---------- Helfer ---------- */
 const $ = (s, el = document) => el.querySelector(s);
@@ -40,9 +40,9 @@ const COLLS = ['firmen', 'projekte', 'logs', 'spesen', 'rechnungen'];
 const S = { loaded: {}, set: { ...DEF } }; COLLS.forEach(c => S[c] = []);
 const ROOT = ['datenscheune', 'main'];
 let W = null, mode = 'local', USER = null, AUTH = null;
-const STATUS = ['Offen', 'On hold', 'Abgeschlossen'];
-const STC = { Offen: 'green', 'On hold': 'warn', Abgeschlossen: '' };
-const ALT_STATUS = { Idee: 'Offen', Offeriert: 'Offen', Aktiv: 'Offen', Pausiert: 'On hold' };
+const STATUS = ['Backlog', 'To-do', 'In Arbeit', 'On hold', 'Done'];
+const STC = { Backlog: '', 'To-do': 'blue', 'In Arbeit': 'green', 'On hold': 'warn', Done: 'done' };
+const ALT_STATUS = { Offen: 'In Arbeit', Abgeschlossen: 'Done', Idee: 'Backlog', Offeriert: 'To-do', Aktiv: 'In Arbeit', Pausiert: 'On hold' };
 const IC = {
   edit: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
   trash: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>',
@@ -138,7 +138,7 @@ const sumMin = ls => ls.reduce((a, l) => a + (l.minuten || 0), 0);
 const umsatzJahr = y => S.rechnungen.filter(r => r.status !== 'storniert' && (r.datum || '').startsWith(y)).reduce((a, r) => a + num(r.total), 0);
 function projektOptions(sel, nurAktiv = true) {
   return `<option value="">- Projekt wählen -</option>` + sortFirmen().map(f => {
-    const ps = S.projekte.filter(p => p.firmaId === f.id && (!nurAktiv || p.status !== 'Abgeschlossen' || p.id === sel)).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+    const ps = S.projekte.filter(p => p.firmaId === f.id && (!nurAktiv || p.status !== 'Done' || p.id === sel)).sort((a, b) => a.name.localeCompare(b.name, 'de'));
     return ps.length ? `<optgroup label="${esc(f.name)}">${ps.map(p => `<option value="${p.id}" ${p.id === sel ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</optgroup>` : '';
   }).join('');
 }
@@ -147,13 +147,13 @@ const adrZeilen = o => [o.strasse ? `${o.strasse}${o.nr ? ' ' + o.nr : ''}` : ''
 
 function migrieren() {
   if (!S.loaded.projekte) return;
-  S.projekte.filter(p => !STATUS.includes(p.status)).forEach(p => put('projekte', { ...p, status: ALT_STATUS[p.status] || 'Offen' }));
+  S.projekte.filter(p => !STATUS.includes(p.status)).forEach(p => put('projekte', { ...p, status: ALT_STATUS[p.status] || 'In Arbeit' }));
 }
 
 /* ---------- Router ---------- */
 let rq = false;
 function schedule() { if (rq) return; rq = true; requestAnimationFrame(() => { rq = false; render(); }); }
-const UI = { logMonat: today().slice(0, 7), logFirma: '', logProjekt: '', logTag: '', logStatus: '', qa: { datum: today(), projektId: '', text: '', dauer: '', tags: '[]', verrechenbar: true }, pStatus: 'Offen', pFirma: '', open: {}, rStatus: '', spJahr: String(new Date().getFullYear()) };
+const UI = { logMonat: today().slice(0, 7), logFirma: '', logProjekt: '', logTag: '', logStatus: '', qa: { datum: today(), projektId: '', text: '', dauer: '', tags: '[]', verrechenbar: true }, pStatus: 'aktiv', pFirma: '', open: {}, rStatus: '', spJahr: String(new Date().getFullYear()) };
 
 function render() {
   if (mode === 'firebase' && !USER) return;
@@ -254,9 +254,9 @@ function vDashboard() {
   const off = offeneLogs(), offW = off.reduce((a, l) => a + logWert(l), 0) + offeneSpesen().reduce((a, s) => a + num(s.betrag), 0);
   const ro = S.rechnungen.filter(r => r.status === 'offen'), roSum = ro.reduce((a, r) => a + num(r.total), 0), roUeber = ro.filter(r => r.faellig && r.faellig < d).length;
   const ums = umsatzJahr(y), gr = num(S.set.mwstGrenze) || 100000, pct = Math.min(100, ums / gr * 100);
-  const todos = []; S.projekte.filter(p => p.status !== 'Abgeschlossen').forEach(p => (p.todos || []).filter(t => !t.erledigt).forEach(t => todos.push({ p, t })));
+  const todos = []; S.projekte.filter(p => p.status !== 'Done').forEach(p => (p.todos || []).filter(t => !t.erledigt).forEach(t => todos.push({ p, t })));
   todos.sort((a, b) => (a.t.faellig || '9999') < (b.t.faellig || '9999') ? -1 : 1);
-  const aktiv = S.projekte.filter(p => p.status === 'Offen');
+  const aktiv = S.projekte.filter(p => p.status === 'In Arbeit');
   const letzte = [...S.logs].sort((a, b) => (b.datum + (b.geaendert || '')).localeCompare(a.datum + (a.geaendert || ''))).slice(0, 8);
   const leer = !S.firmen.length ? `<div class="card"><h2>Erste Schritte</h2><ol style="margin:0;padding-left:18px;line-height:1.9"><li><a href="#/einstellungen">Einstellungen</a>: eigene Adresse und IBAN erfassen</li><li><a href="#/firmen">Firma</a> mit Ansprechpartner und Stundensatz anlegen</li><li><a href="#/projekte">Projekt</a> anlegen</li><li>In der <a href="#/logs">Zeiterfassung</a> Tätigkeiten erfassen</li><li><a href="#/rechnungen">Rechnung</a> erstellen</li></ol></div>` : '';
   return `<div class="head"><h1>Dashboard<span class="sub">${fmt(d)}</span></h1><button class="btn pri" data-act="logNeu">+ Tätigkeit</button></div>${leer}
@@ -269,7 +269,7 @@ function vDashboard() {
   </div>
   <div class="grid g2">
     <div class="card"><h2>Offene To-dos</h2>${todos.length ? `<div class="list">${todos.slice(0, 12).map(({ p, t }) => `<div class="li"><input type="checkbox" class="chk" data-act="todoToggle" data-p="${p.id}" data-t="${t.id}"><div class="grow">${esc(t.text)}<div class="small muted"><a href="#/projekt/${p.id}">${esc(p.name)}</a> · ${esc(fName(p.firmaId))}</div></div>${t.faellig ? `<span class="b ${t.faellig < d ? 'red' : t.faellig <= addDays(d, 7) ? 'warn' : ''}">${fmt(t.faellig)}</span>` : ''}</div>`).join('')}</div>` : '<div class="empty">Keine offenen To-dos</div>'}</div>
-    <div class="card"><h2>Offene Projekte</h2>${aktiv.length ? `<div class="list">${aktiv.map(p => { const ol = offeneLogs().filter(l => l.projektId === p.id); return `<a class="li" href="#/projekt/${p.id}" style="text-decoration:none;color:inherit"><div class="grow"><b>${esc(p.name)}</b><div class="small muted">${esc(fName(p.firmaId))}</div></div><span class="small muted">${hm(sumMin(ol))} h offen</span></a>`; }).join('')}</div>` : '<div class="empty">Keine offenen Projekte</div>'}</div>
+    <div class="card"><h2>Projekte in Arbeit</h2>${aktiv.length ? `<div class="list">${aktiv.map(p => { const ol = offeneLogs().filter(l => l.projektId === p.id); return `<a class="li" href="#/projekt/${p.id}" style="text-decoration:none;color:inherit"><div class="grow"><b>${esc(p.name)}</b><div class="small muted">${esc(fName(p.firmaId))}</div></div><span class="small muted">${hm(sumMin(ol))} h offen</span></a>`; }).join('')}</div>` : '<div class="empty">Keine Projekte in Arbeit</div>'}</div>
   </div>
   <div class="card"><h2>Zuletzt erfasst</h2>${logTable(letzte, false)}</div>`;
 }
@@ -357,7 +357,7 @@ function download(data, name, type) { const a = document.createElement('a'); a.h
 function vFirmen() {
   const fs = sortFirmen();
   return `<div class="head"><h1>Firmen</h1><button class="btn pri" data-act="firmaNeu">+ Firma</button></div>
-  <div class="card">${fs.length ? `<table class="t"><thead><tr><th>Firma</th><th>Ort</th><th>Ansprechpartner</th><th class="num">Ansatz</th><th class="num">Projekte</th><th class="num">Offen</th></tr></thead><tbody>${fs.map(f => { const ol = offeneLogs(f.id); return `<tr class="click" data-href="#/firma/${f.id}"><td><div style="display:flex;align-items:center;gap:10px">${logoImg(f, 28)}<span><b>${esc(f.name)}</b>${f.archiv ? ' <span class="b">archiviert</span>' : ''}</span></div></td><td>${esc([f.plz, f.ort].filter(Boolean).join(' '))}</td><td>${esc((f.kontakte || []).map(k => k.name).join(', '))}</td><td class="num">${f.ansatz ? 'CHF ' + chf(num(f.ansatz)) : '-'}</td><td class="num">${S.projekte.filter(p => p.firmaId === f.id && p.status !== 'Abgeschlossen').length}</td><td class="num">${hm(sumMin(ol))} h</td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Noch keine Firmen erfasst</div>'}</div>`;
+  <div class="card">${fs.length ? `<table class="t"><thead><tr><th>Firma</th><th>Ort</th><th>Ansprechpartner</th><th class="num">Ansatz</th><th class="num">Projekte</th><th class="num">Offen</th></tr></thead><tbody>${fs.map(f => { const ol = offeneLogs(f.id); return `<tr class="click" data-href="#/firma/${f.id}"><td><div style="display:flex;align-items:center;gap:10px">${logoImg(f, 28)}<span><b>${esc(f.name)}</b>${f.archiv ? ' <span class="b">archiviert</span>' : ''}</span></div></td><td>${esc([f.plz, f.ort].filter(Boolean).join(' '))}</td><td>${esc((f.kontakte || []).map(k => k.name).join(', '))}</td><td class="num">${f.ansatz ? 'CHF ' + chf(num(f.ansatz)) : '-'}</td><td class="num">${S.projekte.filter(p => p.firmaId === f.id && p.status !== 'Done').length}</td><td class="num">${hm(sumMin(ol))} h</td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Noch keine Firmen erfasst</div>'}</div>`;
 }
 function vFirma(id) {
   const f = firma(id); if (!f) return '<div class="empty">Firma nicht gefunden</div>';
@@ -441,9 +441,9 @@ const linkHost = u => { try { return new URL(u).hostname.replace(/^www\./, ''); 
 const typOptions = sel => Object.keys(NTYP).map(t => `<option ${t === sel ? 'selected' : ''}>${t}</option>`).join('');
 
 function vProjekte() {
-  const ps = S.projekte.filter(p => (UI.pStatus === 'alle' || p.status === UI.pStatus) && (!UI.pFirma || p.firmaId === UI.pFirma))
+  const ps = S.projekte.filter(p => (UI.pStatus === 'alle' || (UI.pStatus === 'aktiv' ? p.status !== 'Done' : p.status === UI.pStatus)) && (!UI.pFirma || p.firmaId === UI.pFirma))
     .sort((a, b) => STATUS.indexOf(a.status) - STATUS.indexOf(b.status) || a.name.localeCompare(b.name, 'de'));
-  return `<div class="head"><h1>Projekte</h1><select data-ui="pFirma" style="width:auto;min-width:180px">${firmaOptions(UI.pFirma, 'Alle Firmen')}</select><div class="seg">${[...STATUS.map(s => [s, s]), ['alle', 'Alle']].map(([v, t]) => `<button data-act="pStatus" data-v="${v}" class="${UI.pStatus === v ? 'on' : ''}">${t}</button>`).join('')}</div><button class="btn pri" data-act="projektNeu" data-firma="${UI.pFirma}">+ Projekt</button></div>
+  return `<div class="head"><h1>Projekte</h1><select data-ui="pFirma" style="width:auto;min-width:180px">${firmaOptions(UI.pFirma, 'Alle Firmen')}</select><div class="seg">${[['aktiv', 'Aktiv'], ...STATUS.map(s => [s, s]), ['alle', 'Alle']].map(([v, t]) => `<button data-act="pStatus" data-v="${v}" class="${UI.pStatus === v ? 'on' : ''}">${t}</button>`).join('')}</div><button class="btn pri" data-act="projektNeu" data-firma="${UI.pFirma}">+ Projekt</button></div>
   ${ps.length ? `<div class="pcards">${ps.map(p => { const ls = S.logs.filter(l => l.projektId === p.id), td = (p.todos || []).filter(t => !t.erledigt).length, f = pFirma(p); return `<a class="pcard" href="#/projekt/${p.id}"><div style="display:flex;justify-content:space-between;align-items:center"><span class="b ${STC[p.status] || ''}">${esc(p.status)}</span>${logoImg(f, 26)}</div><h3>${esc(p.name)}</h3><div class="small muted">${esc(fName(p.firmaId))}</div><div class="meta"><span>${hm(sumMin(ls))} h total</span><span>${td} To-do${td === 1 ? '' : 's'}</span><span>CHF ${chf(ansatz(p))}/h</span></div></a>`; }).join('')}</div>` : '<div class="card empty">Keine Projekte</div>'}`;
 }
 function vProjekt(id) {
@@ -514,7 +514,7 @@ function projektModal(p = {}) {
   const ov = modal({
     title: p.id ? 'Projekt bearbeiten' : 'Neues Projekt', wide: true,
     body: `<div class="frow c2">${fld('Projektname', inp('name', p.name))}${fld('Firma', `<select name="firmaId" id="pmFirma">${firmaOptions(p.firmaId)}</select>`)}</div>
-      <div class="frow c4">${fld('Status', `<select name="status">${STATUS.map(s => `<option ${s === (p.status || 'Offen') ? 'selected' : ''}>${s}</option>`).join('')}</select>`)}${fld('Stundensatz CHF', inp('ansatz', p.ansatz || '', 'number', `step="0.05" min="0" id="pmAnsatz" placeholder="${p.firmaId ? 'Firma: ' + chf(num((firma(p.firmaId) || {}).ansatz)) : 'Standard Firma'}"`))}${fld('Start', inp('start', p.start, 'date'))}${fld('Ende', inp('ende', p.ende, 'date'))}</div>
+      <div class="frow c4">${fld('Status', `<select name="status">${STATUS.map(s => `<option ${s === (p.status || 'To-do') ? 'selected' : ''}>${s}</option>`).join('')}</select>`)}${fld('Stundensatz CHF', inp('ansatz', p.ansatz || '', 'number', `step="0.05" min="0" id="pmAnsatz" placeholder="${p.firmaId ? 'Firma: ' + chf(num((firma(p.firmaId) || {}).ansatz)) : 'Standard Firma'}"`))}${fld('Start', inp('start', p.start, 'date'))}${fld('Ende', inp('ende', p.ende, 'date'))}</div>
       <div class="small muted" style="margin:-4px 0 10px">Stundensatz leer = Standard der Firma</div>
       <div class="frow">${fld('Beschreibung / Ziel', `<textarea name="beschreibung" rows="3">${esc(p.beschreibung || '')}</textarea>`)}</div>
       <div class="f" style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px">Personen</div><div id="pmPers" style="display:flex;flex-wrap:wrap;gap:6px 16px">${persBox(p.firmaId, p.personen || [])}</div>`,
@@ -523,7 +523,7 @@ function projektModal(p = {}) {
       const x = put('projekte', { todos: [], notizen: [], links: [], ...p, name: o.name, firmaId: o.firmaId, status: o.status, ansatz: num(o.ansatz), start: o.start, ende: o.ende, beschreibung: o.beschreibung, personen: o.personen || [] });
       if (!p.id) location.hash = '#/projekt/' + x.id;
     },
-    onDelete: p.id ? () => { if (S.logs.some(l => l.projektId === p.id)) { toast('Projekt hat Tätigkeiten - Status "Abgeschlossen" setzen statt löschen'); return; } del('projekte', p.id); location.hash = '#/projekte'; } : null
+    onDelete: p.id ? () => { if (S.logs.some(l => l.projektId === p.id)) { toast('Projekt hat Tätigkeiten - Status "Done" setzen statt löschen'); return; } del('projekte', p.id); location.hash = '#/projekte'; } : null
   });
   $('#pmFirma', ov).onchange = e => { $('#pmPers', ov).innerHTML = persBox(e.target.value, []); $('#pmAnsatz', ov).placeholder = e.target.value ? 'Firma: ' + chf(num((firma(e.target.value) || {}).ansatz)) : 'Standard Firma'; };
 }
@@ -788,7 +788,7 @@ document.addEventListener('click', e => {
     personRemove: () => { e.stopPropagation(); pListe(b.dataset.p, 'personen', l => l.filter(x => x !== b.dataset.t)); },
     externRemove: () => { e.stopPropagation(); if (confirm('Person entfernen?')) pListe(b.dataset.p, 'externe', l => l.filter(x => x.id !== b.dataset.t)); },
     notizEdit: () => { const p = projekt(b.dataset.p); const n = p && (p.notizen || []).find(x => x.id === b.dataset.t); if (n) notizModal(b.dataset.p, n); },
-    projektDel: () => { const p = projekt(id); if (!p) return; if (S.logs.some(l => l.projektId === id)) return toast('Projekt hat Tätigkeiten - Status "Abgeschlossen" setzen statt löschen'); if (confirm('Projekt löschen?')) { del('projekte', id); location.hash = '#/projekte'; } }, externEdit: () => { if (e.target.closest('a')) return; const p = projekt(b.dataset.p); externModal(b.dataset.p, ((p && p.externe) || []).find(k => k.id === b.dataset.k)); },
+    projektDel: () => { const p = projekt(id); if (!p) return; if (S.logs.some(l => l.projektId === id)) return toast('Projekt hat Tätigkeiten - Status "Done" setzen statt löschen'); if (confirm('Projekt löschen?')) { del('projekte', id); location.hash = '#/projekte'; } }, externEdit: () => { if (e.target.closest('a')) return; const p = projekt(b.dataset.p); externModal(b.dataset.p, ((p && p.externe) || []).find(k => k.id === b.dataset.k)); },
     projektNeu: () => projektModal({ firmaId: b.dataset.firma || '' }), projektEdit: () => projektModal(projekt(id)),
     pStatus: () => { UI.pStatus = b.dataset.v; schedule(); }, rStatus: () => { UI.rStatus = b.dataset.v; schedule(); },
     todoToggle: () => pListe(b.dataset.p, 'todos', l => l.map(t => t.id === b.dataset.t ? { ...t, erledigt: !t.erledigt, erledigtAm: !t.erledigt ? today() : '' } : t)),
@@ -827,7 +827,7 @@ document.addEventListener('submit', e => {
     if (o.wahl !== '__neu') pListe(pid, 'personen', l => l.includes(o.wahl) ? l : [...l, o.wahl]);
     else { if (!(o.name || '').trim()) return toast('Name fehlt'); pListe(pid, 'externe', l => [...l, { id: uid(), name: o.name.trim(), org: o.org, funktion: o.funktion, email: o.email, tel: o.tel, notiz: o.notiz }]); }
   }
-  if (f.dataset.form === 'projektAdd') { if (!(o.name || '').trim()) return toast('Projektname fehlt'); put('projekte', { firmaId: f.dataset.f, name: o.name.trim(), status: o.status || 'Offen', ansatz: 0, beschreibung: '', personen: [], externe: [], todos: [], notizen: [], links: [] }); toast('Projekt erstellt'); }
+  if (f.dataset.form === 'projektAdd') { if (!(o.name || '').trim()) return toast('Projektname fehlt'); put('projekte', { firmaId: f.dataset.f, name: o.name.trim(), status: o.status || 'To-do', ansatz: 0, beschreibung: '', personen: [], externe: [], todos: [], notizen: [], links: [] }); toast('Projekt erstellt'); }
   if (f.dataset.form === 'kontaktAdd') {
     const fi = firma(f.dataset.f); if (!fi) return; if (!(o.name || '').trim()) return toast('Name fehlt');
     put('firmen', { ...fi, kontakte: [...(fi.kontakte || []), { id: uid(), name: o.name.trim(), funktion: o.funktion, email: o.email, tel: o.tel, notiz: o.notiz }] });
