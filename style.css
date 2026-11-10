@@ -177,3 +177,6 @@ table.t{width:100%;border-collapse:collapse}
 .addbox .frow{margin-bottom:8px}
 
 .b.done{background:#E9ECEA;color:#7B847F;text-decoration:line-through}
+
+.anteile{border-top:1px dashed var(--line);padding-top:8px;margin-top:2px}
+.arow{display:grid;grid-template-columns:1fr 80px 16px 34px;gap:6px;align-items:center;margin-bottom:6px;max-width:620px}
