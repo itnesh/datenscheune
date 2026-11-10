@@ -160,4 +160,10 @@ table.t{width:100%;border-collapse:collapse}
 .head .flogo{padding:4px}
 
 .ntyp{width:34px;height:34px;border-radius:10px;background:var(--greenT);color:var(--green);display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
-@media (max-width:1100px){.card .frow[style*="2fr 1.5fr"]{grid-template-columns:1fr 1fr!important}}
+@media (max-width:1100px){.card .frow[style*="2fr 1.4fr"]{grid-template-columns:1fr 1fr!important}}
+
+.logoup{cursor:pointer;flex:0 0 auto;display:inline-flex}
+.logoph{width:56px;height:56px;border-radius:12px;border:1.5px dashed rgba(20,30,25,.25);display:inline-flex;flex-direction:column;align-items:center;justify-content:center;color:var(--muted);gap:1px}
+.logoph small{font-size:10px}
+.logoup:hover .flogo,.logoup:hover .logoph{outline:2px solid var(--green2)}
+@media (max-width:1100px){.card .frow[style*="2fr 1fr 2fr"]{grid-template-columns:1fr 1fr!important}}

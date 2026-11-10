@@ -1,5 +1,5 @@
 // Datenscheune - Zeiterfassung, Projekte, Rechnungen. Daten lokal oder in Firestore (datenscheune/main/...).
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 
 /* ---------- Helfer ---------- */
 const $ = (s, el = document) => el.querySelector(s);
@@ -154,15 +154,21 @@ const UI = { logMonat: today().slice(0, 7), logFirma: '', logProjekt: '', logTag
 
 function render() {
   if (mode === 'firebase' && !USER) return;
-  const ae = document.activeElement;
-  if (ae && $('#view').contains(ae) && (ae.tagName === 'TEXTAREA' || (ae.tagName === 'INPUT' && /^(text|number|email|tel|url|date)$/.test(ae.type)))) { ae.addEventListener('blur', schedule, { once: true }); return; }
   const h = location.hash.replace(/^#\/?/, '') || 'dashboard';
+  const ae = document.activeElement, navi = h !== render.last; render.last = h;
+  let keep = null;
+  if (!navi && ae && $('#view').contains(ae) && (ae.tagName === 'TEXTAREA' || (ae.tagName === 'INPUT' && /^(text|number|email|tel|url|date)$/.test(ae.type)))) {
+    const inl = ae.dataset.ff ? `[data-ff="${ae.dataset.ff}"]` : ae.dataset.pf ? `[data-pf="${ae.dataset.pf}"]` : null;
+    if (!inl) { ae.addEventListener('blur', schedule, { once: true }); return; }
+    keep = { sel: inl, v: ae.value, a: ae.selectionStart, b: ae.selectionEnd };
+  }
   const [tab, id] = h.split('/');
   const V = { dashboard: vDashboard, logs: vLogs, projekte: vProjekte, projekt: vProjekt, firmen: vFirmen, firma: vFirma, spesen: vSpesen, rechnungen: vRechnungen, einstellungen: vEinstellungen }[tab] || vDashboard;
   const navTab = { projekt: 'projekte', firma: 'firmen' }[tab] || tab;
   $$('#nav a').forEach(a => a.classList.toggle('on', a.dataset.tab === navTab));
   migrieren();
   $('#view').innerHTML = V(id);
+  if (keep) { const el = $(keep.sel, $('#view')); if (el) { el.value = keep.v; el.focus(); try { el.setSelectionRange(keep.a, keep.b); } catch (e) { } } }
 }
 window.addEventListener('hashchange', schedule);
 
@@ -192,6 +198,12 @@ document.addEventListener('input', e => {
   if (t.classList && t.classList.contains('tagtxt')) { const box = t.closest('[data-tagin]'); let sel = []; try { sel = JSON.parse($('input[type=hidden]', box).value); } catch (x) { } const s = $('.sugg', box); s.outerHTML = tagInner(sel, t.value).match(/<div class="sugg">[\s\S]*<\/div>$/)[0]; }
   if (t.dataset && t.dataset.qa) UI.qa[t.dataset.qa] = t.type === 'checkbox' ? t.checked : t.value;
   if (t.dataset && t.dataset.ui) { UI[t.dataset.ui] = t.value; if (t.tagName === 'SELECT' || t.type === 'month') schedule(); }
+});
+document.addEventListener('change', e => {
+  const t = e.target; if (!t.dataset || !t.dataset.ff) return; const f = firma(t.dataset.f); if (!f) return;
+  const k = t.dataset.ff, v = k === 'archiv' ? t.checked : k === 'ansatz' ? num(t.value) : k === 'land' ? (t.value.trim().toUpperCase() || 'CH') : t.value.trim();
+  if (k === 'name' && !v) { toast('Firmenname darf nicht leer sein'); t.value = f.name; return; }
+  put('firmen', { ...f, [k]: v }); toast('Gespeichert');
 });
 document.addEventListener('change', e => {
   const t = e.target; if (!t.dataset || !t.dataset.pf) return; const p = projekt(t.dataset.p); if (!p) return;
@@ -342,10 +354,15 @@ function vFirma(id) {
   const f = firma(id); if (!f) return '<div class="empty">Firma nicht gefunden</div>';
   const ps = S.projekte.filter(p => p.firmaId === id), rs = S.rechnungen.filter(r => r.firmaId === id).sort((a, b) => b.datum.localeCompare(a.datum));
   const ol = offeneLogs(id), ow = ol.reduce((a, l) => a + logWert(l), 0) + offeneSpesen(id).reduce((a, s) => a + num(s.betrag), 0);
-  return `<div class="head">${logoImg(f, 52)}<h1><a href="#/firmen" class="small" style="text-decoration:none">‹ Firmen</a><br>${esc(f.name)}<span class="sub">${esc(adrZeilen(f).join(', '))}</span></h1>${icBtn('edit', 'firmaEdit', `data-id="${id}"`, 'Firma bearbeiten')}<button class="btn" data-act="projektNeu" data-firma="${id}">+ Projekt</button>${ol.length ? `<button class="btn pri" data-act="rechnungNeu" data-firma="${id}">Rechnung erstellen</button>` : ''}</div>
+  const ff = (label, k, type = 'text', attrs = '') => fld(label, `<input type="${type}" data-ff="${k}" data-f="${id}" value="${esc(f[k] ?? '')}" ${attrs}>`);
+  return `<div class="head"><label class="logoup" title="Logo hochladen">${f.logo ? logoImg(f, 56) : `<span class="logoph">${IC.plus}<small>Logo</small></span>`}<input type="file" accept="image/png,image/jpeg,image/svg+xml" class="hidden" data-act="firmaLogo" data-f="${id}"></label><h1><a href="#/firmen" class="small" style="text-decoration:none">‹ Firmen</a><br>${esc(f.name)}<span class="sub">${esc(adrZeilen(f).join(', '))}${f.archiv ? ' · <span class="b">archiviert</span>' : ''}</span></h1><button class="btn" data-act="projektNeu" data-firma="${id}">+ Projekt</button>${ol.length ? `<button class="btn pri" data-act="rechnungNeu" data-firma="${id}">Rechnung erstellen</button>` : ''}${icBtn('trash', 'firmaDel', `data-id="${id}"`, 'Firma löschen')}</div>
+  <div class="card"><h2>Firmendaten</h2>
+    <div class="frow" style="grid-template-columns:2fr 1fr 2fr .7fr .8fr 1.4fr .6fr">${ff('Firmenname', 'name')}${ff('Stundensatz CHF', 'ansatz', 'number', 'step="0.05" min="0"')}${ff('Strasse', 'strasse')}${ff('Nr.', 'nr')}${ff('PLZ', 'plz')}${ff('Ort', 'ort')}${ff('Land', 'land', 'text', 'maxlength="2"')}</div>
+    <div class="frow" style="grid-template-columns:1fr 2fr">${ff('Web', 'web', 'url')}${fld('Notiz', `<textarea data-ff="notiz" data-f="${id}" rows="2">${esc(f.notiz || '')}</textarea>`)}</div>
+    <div class="btns" style="align-items:center"><label class="chk"><input type="checkbox" data-ff="archiv" data-f="${id}" ${f.archiv ? 'checked' : ''}>archiviert</label>${f.logo ? '<button class="btn sm danger" data-act="firmaLogoDel" data-id="' + id + '">Logo entfernen</button>' : ''}<span class="small muted">Änderungen werden automatisch gespeichert. Logo: oben links anklicken.</span></div></div>
   <div class="kpis"><div class="kpi"><span>Stundensatz</span><b>${f.ansatz ? 'CHF ' + chf(num(f.ansatz)) : '-'}</b></div><div class="kpi"><span>Nicht verrechnet</span><b>CHF ${chf(ow)}</b><small>${hm(sumMin(ol))} h</small></div><div class="kpi"><span>Verrechnet total</span><b>CHF ${chf(rs.filter(r => r.status !== 'storniert').reduce((a, r) => a + num(r.total), 0))}</b></div></div>
   <div class="grid g2">
-    <div class="card"><div class="ch"><h2>Ansprechpartner</h2>${icBtn('plus', 'kontaktNeu', `data-firma="${id}"`, 'Ansprechpartner erfassen')}</div>${(f.kontakte || []).length ? `<div class="list">${f.kontakte.map(k => kontaktLi(k, `data-act="kontaktEdit" data-firma="${id}" data-k="${k.id}"`)).join('')}</div>` : '<div class="empty">Keine Ansprechpartner</div>'}${f.notiz ? `<p class="small" style="white-space:pre-wrap;margin-top:10px">${esc(f.notiz)}</p>` : ''}</div>
+    <div class="card"><div class="ch"><h2>Ansprechpartner</h2>${icBtn('plus', 'kontaktNeu', `data-firma="${id}"`, 'Ansprechpartner erfassen')}</div>${(f.kontakte || []).length ? `<div class="list">${f.kontakte.map(k => kontaktLi(k, `data-act="kontaktEdit" data-firma="${id}" data-k="${k.id}"`)).join('')}</div>` : '<div class="empty">Keine Ansprechpartner</div>'}</div>
     <div class="card"><h2>Projekte</h2>${ps.length ? `<div class="list">${ps.map(p => `<a class="li" href="#/projekt/${p.id}" style="text-decoration:none;color:inherit"><div class="grow"><b>${esc(p.name)}</b><div class="small muted">Ansatz CHF ${chf(ansatz(p))}${num(p.ansatz) ? '' : ' (Firma)'}</div></div><span class="b ${STC[p.status] || ''}">${esc(p.status)}</span></a>`).join('')}</div>` : '<div class="empty">Keine Projekte</div>'}</div>
   </div>
   <div class="card"><h2>Rechnungen</h2>${rTable(rs)}</div>`;
@@ -421,11 +438,11 @@ function vProjekt(id) {
   const d = today(), x = (act, t) => `<button class="btn sm ghost" data-act="${act}" data-p="${id}" data-t="${t}" title="Entfernen">✕</button>`;
   return `<div class="head">${logoImg(f, 52)}<h1><a href="#/projekte" class="small" style="text-decoration:none">‹ Projekte</a><br>${esc(p.name)}<span class="sub"><a href="#/firma/${f.id}">${esc(f.name || '?')}</a> · <span class="b ${STC[p.status] || ''}">${esc(p.status)}</span></span></h1>
     <button class="btn pri" data-act="logNeuP" data-id="${id}">+ Tätigkeit</button>${icBtn('trash', 'projektDel', `data-id="${id}"`, 'Projekt löschen')}</div>
-  <div class="kpis"><div class="kpi"><span>Stundensatz</span><b>CHF ${chf(ansatz(p))}</b><small>${num(p.ansatz) ? 'Projektansatz' : 'Standard der Firma'}</small></div><div class="kpi"><span>Stunden total</span><b>${hm(sumMin(ls))} h</b></div><div class="kpi"><span>Nicht verrechnet</span><b>CHF ${chf(ol.reduce((a, l) => a + logWert(l), 0))}</b><small>${hm(sumMin(ol))} h</small></div></div>
   <div class="card"><h2>Projektdaten</h2>
-    <div class="frow" style="grid-template-columns:2fr 1.5fr 1fr 1fr 1fr 1fr">${fld('Projektname', `<input type="text" data-pf="name" data-p="${id}" value="${esc(p.name)}">`)}${fld('Firma', `<select data-pf="firmaId" data-p="${id}">${firmaOptions(p.firmaId)}</select>`)}${fld('Status', `<select data-pf="status" data-p="${id}">${STATUS.map(s => `<option ${s === p.status ? 'selected' : ''}>${s}</option>`).join('')}</select>`)}${fld('Stundensatz CHF', `<input type="number" step="0.05" min="0" data-pf="ansatz" data-p="${id}" value="${num(p.ansatz) || ''}" placeholder="Firma: ${chf(num(f.ansatz))}">`)}${fld('Von', `<input type="date" data-pf="start" data-p="${id}" value="${esc(p.start || '')}">`)}${fld('Bis', `<input type="date" data-pf="ende" data-p="${id}" value="${esc(p.ende || '')}">`)}</div>
+    <div class="frow" style="grid-template-columns:2fr 1.4fr 1.3fr 1fr 1fr 1fr">${fld('Projektname', `<input type="text" data-pf="name" data-p="${id}" value="${esc(p.name)}">`)}${fld('Firma', `<select data-pf="firmaId" data-p="${id}">${firmaOptions(p.firmaId)}</select>`)}${fld('Status', `<select data-pf="status" data-p="${id}">${STATUS.map(s => `<option ${s === p.status ? 'selected' : ''}>${s}</option>`).join('')}</select>`)}${fld('Stundensatz CHF', `<input type="number" step="0.05" min="0" data-pf="ansatz" data-p="${id}" value="${num(p.ansatz) || ''}" placeholder="Firma: ${chf(num(f.ansatz))}">`)}${fld('Von', `<input type="date" data-pf="start" data-p="${id}" value="${esc(p.start || '')}">`)}${fld('Bis', `<input type="date" data-pf="ende" data-p="${id}" value="${esc(p.ende || '')}">`)}</div>
     ${fld('Beschreibung / Ziel', `<textarea data-pf="beschreibung" data-p="${id}" rows="2">${esc(p.beschreibung || '')}</textarea>`)}
     <div class="small muted" style="margin-top:6px">Änderungen werden automatisch gespeichert. Stundensatz leer = Standard der Firma.</div></div>
+  <div class="kpis"><div class="kpi"><span>Stundensatz</span><b>CHF ${chf(ansatz(p))}</b><small>${num(p.ansatz) ? 'Projektansatz' : 'Standard der Firma'}</small></div><div class="kpi"><span>Stunden total</span><b>${hm(sumMin(ls))} h</b></div><div class="kpi"><span>Nicht verrechnet</span><b>CHF ${chf(ol.reduce((a, l) => a + logWert(l), 0))}</b><small>${hm(sumMin(ol))} h</small></div></div>
   <div class="grid g2">
     <div class="card"><h2>To-dos</h2><form class="frow" data-form="todoAdd" data-p="${id}" style="grid-template-columns:1fr 140px auto"><input type="text" name="text" placeholder="Neues To-do"><input type="date" name="faellig"><button class="btn pri">+</button></form>
       ${todos.length ? `<div class="list">${todos.map(t => `<div class="li ${t.erledigt ? 'done' : ''}"><input type="checkbox" data-act="todoToggle" data-p="${id}" data-t="${t.id}" ${t.erledigt ? 'checked' : ''}><div class="grow">${esc(t.text)}</div>${t.faellig ? `<span class="b ${!t.erledigt && t.faellig < d ? 'red' : ''}">${fmt(t.faellig)}</span>` : ''}${x('todoDel', t.id)}</div>`).join('')}</div>` : '<div class="empty">Keine To-dos</div>'}</div>
@@ -731,6 +748,8 @@ document.addEventListener('click', e => {
     csv: csvExport,
     alleMonate: () => { UI.logMonat = UI.logMonat ? '' : today().slice(0, 7); schedule(); },
     firmaNeu: () => firmaModal(), firmaEdit: () => firmaModal(firma(id)),
+    firmaLogoDel: () => { const f = firma(id); if (f) put('firmen', { ...f, logo: '' }); },
+    firmaDel: () => { if (S.projekte.some(p => p.firmaId === id)) return toast('Firma hat Projekte - zuerst löschen oder "archiviert" setzen'); if (confirm('Firma löschen?')) { del('firmen', id); location.hash = '#/firmen'; } },
     kontaktNeu: () => kontaktModal(b.dataset.firma), kontaktEdit: () => { if (e.target.closest('a')) return; const f = firma(b.dataset.firma); kontaktModal(b.dataset.firma, ((f && f.kontakte) || []).find(k => k.id === b.dataset.k)); },
     personNeu: () => personModal(b.dataset.p), externNeu: () => externModal(b.dataset.p),
     personRemove: () => { e.stopPropagation(); pListe(b.dataset.p, 'personen', l => l.filter(x => x !== b.dataset.t)); },
@@ -754,6 +773,7 @@ document.addEventListener('click', e => {
 document.addEventListener('change', e => {
   const t = e.target; if (t.type !== 'file' || !t.files[0]) return;
   if (t.dataset.act === 'logo') logoLaden(t.files[0]);
+  if (t.dataset.act === 'firmaLogo') { const f = firma(t.dataset.f); if (f) bildKlein(t.files[0], 256, v => { put('firmen', { ...f, logo: v }); toast('Logo gespeichert'); }); }
   if (t.dataset.act === 'restore') restore(t.files[0]);
   t.value = '';
 });
