@@ -1,5 +1,5 @@
 // Datenscheune - Zeiterfassung, Projekte, Rechnungen. Daten lokal oder in Firestore (datenscheune/main/...).
-const VERSION = '0.5.0';
+const VERSION = '0.6.0';
 
 /* ---------- Helfer ---------- */
 const $ = (s, el = document) => el.querySelector(s);
@@ -277,10 +277,11 @@ function logTable(ls, gruppiert = true) {
     if (gruppiert && l.datum !== last) { last = l.datum; const tm = sumMin(ls.filter(x => x.datum === l.datum)); rows += `<tr class="day"><td colspan="4">${['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][pd(l.datum).getDay()]}, ${fmt(l.datum)}</td><td class="num">${hm(tm)}</td><td></td></tr>`; }
     const p = projekt(l.projektId);
     const st = l.rechnungId ? '<span class="b blue">verrechnet</span>' : l.verrechenbar === false ? '<span class="b">intern</span>' : '<span class="b green">offen</span>';
-    rows += `<tr class="click" data-act="logEdit" data-id="${l.id}">${gruppiert ? '' : `<td class="nowrap">${fmt(l.datum)}</td>`}<td>${p ? `<b>${esc(p.name)}</b><div class="small muted">${esc(fName(p.firmaId))}</div>` : '<span class="muted">-</span>'}</td><td>${esc(l.text)}</td><td>${(l.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join(' ')}</td>${gruppiert ? '<td></td>' : ''}<td class="num">${hm(l.minuten)}</td><td class="num">${st}</td></tr>`;
+    rows += `<tr class="click" data-act="logEdit" data-id="${l.id}">${gruppiert ? '' : `<td class="nowrap">${fmt(l.datum)}</td>`}<td>${p ? `<b>${esc(p.name)}</b><div class="small muted">${esc(fName(p.firmaId))}</div>` : '<span class="muted">-</span>'}</td><td>${l.notizId ? `<span class="muted" title="Mit Protokoll verknüpft">${logNotizIc(l)}</span> ` : ''}${esc(l.text)}</td><td>${(l.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join(' ')}</td>${gruppiert ? '<td></td>' : ''}<td class="num">${hm(l.minuten)}</td><td class="num">${st}</td></tr>`;
   }
   return `<div class="tablewrap"><table class="t"><thead><tr>${gruppiert ? '' : '<th>Datum</th>'}<th>Projekt</th><th>Tätigkeit</th><th>Tags</th>${gruppiert ? '<th></th>' : ''}<th class="num">Dauer</th><th class="num">Status</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
+function logNotizIc(l) { for (const p of S.projekte) { const n = (p.notizen || []).find(x => x.id === l.notizId); if (n) return NTYP[notizTyp(n)].replace('width="18" height="18"', 'width="14" height="14" style="vertical-align:-2px"'); } return ''; }
 function logFilter() {
   return S.logs.filter(l => (!UI.logMonat || (l.datum || '').startsWith(UI.logMonat)) && (!UI.logFirma || logFirma(l) === UI.logFirma) && (!UI.logProjekt || l.projektId === UI.logProjekt)
     && (!UI.logTag || (l.tags || []).includes(UI.logTag)) && (!UI.logStatus || (UI.logStatus === 'offen' ? !l.rechnungId && l.verrechenbar !== false : UI.logStatus === 'verrechnet' ? !!l.rechnungId : l.verrechenbar === false)));
@@ -313,7 +314,7 @@ function logModal(l = {}, after) {
   const neu = !l.id;
   modal({
     title: neu ? 'Tätigkeit erfassen' : 'Tätigkeit bearbeiten',
-    body: `${l.rechnungId ? `<div class="note" style="margin-bottom:10px">Bereits verrechnet (Rechnung ${esc((S.rechnungen.find(r => r.id === l.rechnungId) || {}).nr || '')}). Änderungen wirken nicht auf die Rechnung.</div>` : ''}
+    body: `${l.notizId ? `<div class="small muted" style="margin-bottom:8px">${CLOCK} Verknüpft mit Protokoll im Projekt. Titel und Datum werden dort mitgeändert.</div>` : ''}${l.rechnungId ? `<div class="note" style="margin-bottom:10px">Bereits verrechnet (Rechnung ${esc((S.rechnungen.find(r => r.id === l.rechnungId) || {}).nr || '')}). Änderungen wirken nicht auf die Rechnung.</div>` : ''}
       <div class="frow c2">${fld('Datum', inp('datum', l.datum || today(), 'date'))}${fld('Dauer', inp('dauer', l.minuten ? hm(l.minuten) : '', 'text', 'placeholder="1:30"'))}</div>
       <div class="frow">${fld('Projekt', `<select name="projektId">${projektOptions(l.projektId || '')}</select>`)}</div>
       <div class="frow">${fld('Tätigkeit', `<textarea name="text" rows="3">${esc(l.text || '')}</textarea>`)}</div>
@@ -323,11 +324,13 @@ function logModal(l = {}, after) {
       const min = parseDauer(o.dauer); if (!min) { toast('Dauer fehlt oder ungültig'); return false; }
       if (!o.projektId) { toast('Projekt wählen'); return false; }
       put('logs', { ...l, datum: o.datum || today(), projektId: o.projektId, text: o.text, minuten: min, tags: JSON.parse(o.tags || '[]'), verrechenbar: o.verrechenbar });
+      if (l.notizId) notizSync(l, n => ({ ...n, titel: o.text, datum: o.datum || n.datum }));
       after && after(); toast('Gespeichert');
     },
-    onDelete: neu ? null : () => { if (l.rechnungId) { toast('Verrechnete Tätigkeit: zuerst Rechnung löschen'); return; } del('logs', l.id); }
+    onDelete: neu ? null : () => { if (l.rechnungId) { toast('Verrechnete Tätigkeit: zuerst Rechnung löschen'); return; } del('logs', l.id); if (l.notizId) notizSync(l, n => ({ ...n, logId: '' })); }
   });
 }
+function notizSync(l, fn) { const p = S.projekte.find(x => (x.notizen || []).some(n => n.id === l.notizId)); if (p) pListe(p.id, 'notizen', ns => ns.map(n => n.id === l.notizId ? fn(n) : n)); }
 function quickSave(form) {
   const o = Object.fromEntries(new FormData(form)); const min = parseDauer(o.dauer);
   const box = $('[data-tagin]', form), tt = $('.tagtxt', box); let tags = JSON.parse(o.tags || '[]'); if (tt.value.trim() && !tags.includes(tt.value.trim())) tags.push(tt.value.trim());
@@ -421,7 +424,7 @@ const NTYP = {
   Mail: NI('<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 7l10 6 10-6"/>'),
   Notiz: NI('<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/>')
 };
-const notizTyp = n => n.typ || (/^(call|telefon)/i.test(n.text) ? 'Call' : /^mail/i.test(n.text) ? 'Mail' : /teams/i.test(n.text) ? 'Teams' : /^(meeting|erster termin|termin)/i.test(n.text) ? 'Meeting' : 'Notiz');
+const notizTyp = n => { if (n.typ) return n.typ; const t = n.titel || n.text || ''; return /^(call|telefon)/i.test(t) ? 'Call' : /^mail/i.test(t) ? 'Mail' : /teams/i.test(t) ? 'Teams' : /^(meeting|erster termin|termin)/i.test(t) ? 'Meeting' : 'Notiz'; };
 const LTYP = {
   SharePoint: { c: 'sp', i: NI('<circle cx="10" cy="8" r="5"/><circle cx="16" cy="14" r="4"/><circle cx="9" cy="17" r="3"/>') },
   Teams: { c: 'tm', i: NI('<rect x="2" y="6" width="13" height="12" rx="2"/><path d="M15 10l6-3v10l-6-3"/>') },
@@ -457,16 +460,41 @@ function vProjekt(id) {
   </div>
   <div class="card"><h2>Links &amp; Dokumente</h2><form class="frow" data-form="linkAdd" data-p="${id}" style="grid-template-columns:1fr 2fr auto"><input type="text" name="titel" placeholder="Titel"><input type="url" name="url" placeholder="https://..."><button class="btn pri">+</button></form>
     ${(p.links || []).length ? `<div class="list">${p.links.map(k => { const t = linkTyp(k.url); return `<div class="li"><span class="ntyp ${t.c}" title="${t.n}">${t.i}</span><div class="grow"><a href="${esc(k.url)}" target="_blank" rel="noopener" title="${esc(k.url)}">${esc(k.titel || linkHost(k.url))}</a><div class="small muted">${t.n}</div></div>${x('linkDel', k.id)}</div>`; }).join('')}</div>` : '<div class="empty">Keine Links</div>'}</div>
-  <div class="card"><h2>Notizen / Protokolle</h2><form data-form="notizAdd" data-p="${id}"><div class="frow" style="grid-template-columns:140px 120px 1fr auto;align-items:start"><input type="date" name="datum" value="${today()}"><select name="typ">${typOptions('Meeting')}</select><textarea name="text" rows="2" placeholder="Protokoll, Notiz ..."></textarea><button class="btn pri">+</button></div></form>
-    ${(p.notizen || []).length ? `<div class="list">${[...p.notizen].sort((a, b) => b.datum.localeCompare(a.datum)).map(n => { const t = notizTyp(n); return `<div class="li click" style="align-items:flex-start" data-act="notizEdit" data-p="${id}" data-t="${n.id}"><span class="ntyp" title="${t}">${NTYP[t]}</span><div style="width:84px" class="small"><b>${fmt(n.datum)}</b><div class="muted">${t}</div></div><div class="grow" style="white-space:pre-wrap">${esc(n.text)}</div></div>`; }).join('')}</div>` : ''}</div>
+  <div class="card"><h2>Notizen / Protokolle</h2><form data-form="notizAdd" data-p="${id}" autocomplete="off"><div class="frow" style="grid-template-columns:140px 120px 1fr 100px auto;align-items:end">${fld('Datum', `<input type="date" name="datum" value="${today()}">`)}${fld('Art', `<select name="typ">${typOptions('Meeting')}</select>`)}${fld('Titel (erscheint als Tätigkeit)', '<input type="text" name="titel" placeholder="z.B. Call Markus">')}${fld('Dauer', '<input type="text" name="dauer" placeholder="0:30">')}<label class="chk" style="padding-bottom:10px"><input type="checkbox" name="verrechenbar" checked>verrechenbar</label></div>
+      <div class="frow" style="grid-template-columns:1fr auto;align-items:end"><textarea name="text" rows="3" placeholder="Protokoll / Details ..."></textarea><button class="btn pri" style="height:38px">Erfassen</button></div>
+      <div class="small muted" style="margin:-4px 0 8px">Mit Dauer wird automatisch eine Tätigkeit erstellt (Text = Titel). Ohne Dauer nur Protokoll.</div></form>
+    ${(p.notizen || []).length ? `<div class="list">${[...p.notizen].sort((a, b) => b.datum.localeCompare(a.datum)).map(n => { const t = notizTyp(n); return `<div class="li click" style="align-items:flex-start" data-act="notizEdit" data-p="${id}" data-t="${n.id}"><span class="ntyp" title="${t}">${NTYP[t]}</span><div style="width:84px" class="small"><b>${fmt(n.datum)}</b><div class="muted">${t}</div></div><div class="grow">${n.titel ? `<b>${esc(n.titel)}</b>` : ''}${n.text ? `<div style="white-space:pre-wrap">${esc(n.text)}</div>` : ''}</div>${notizLogBadge(n)}</div>`; }).join('')}</div>` : ''}</div>
   <div class="card"><h2>Tätigkeiten</h2>${logTable(ls, false)}</div>`;
 }
+const CLOCK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="vertical-align:-1px"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+function notizLogBadge(n) { const l = n.logId && S.logs.find(x => x.id === n.logId); if (!l) return ''; return `<span class="b ${l.rechnungId ? 'blue' : l.verrechenbar === false ? '' : 'green'}" title="${l.rechnungId ? 'verrechnet' : l.verrechenbar === false ? 'nicht verrechenbar' : 'offen'}">${CLOCK} ${hm(l.minuten)} h</span>`; }
+function notizSpeichern(pid, alt, o) {
+  const min = parseDauer(o.dauer); if ((o.dauer || '').trim() && !min) { toast('Dauer ungültig (z.B. 0:30)'); return false; }
+  const titel = (o.titel || '').trim(), text = (o.text || '').trim();
+  if (!titel && !text) { toast('Titel oder Text erfassen'); return false; }
+  if (min && !titel) { toast('Für die Tätigkeit einen Titel erfassen'); return false; }
+  const n = { ...(alt || {}), id: (alt && alt.id) || uid(), datum: o.datum || today(), typ: o.typ || 'Notiz', titel, text };
+  let log = n.logId && S.logs.find(l => l.id === n.logId);
+  if (min) {
+    if (log && log.rechnungId) { if (log.minuten !== min) toast('Tätigkeit bereits verrechnet - Dauer bleibt'); put('logs', { ...log, text: titel }); }
+    else { log = put('logs', { tags: [], ...(log || {}), datum: n.datum, projektId: pid, text: titel, minuten: min, verrechenbar: !!o.verrechenbar, notizId: n.id }); n.logId = log.id; }
+  } else if (log) {
+    if (log.rechnungId) toast('Tätigkeit bereits verrechnet - bleibt bestehen');
+    else { del('logs', log.id); n.logId = ''; }
+  }
+  pListe(pid, 'notizen', l => { const i = l.findIndex(x => x.id === n.id); if (i >= 0) l[i] = n; else l.push(n); return l; });
+  toast(min ? 'Protokoll und Tätigkeit gespeichert' : 'Protokoll gespeichert');
+}
 function notizModal(pid, n) {
+  const log = n.logId && S.logs.find(l => l.id === n.logId);
   modal({
-    title: 'Notiz / Protokoll bearbeiten', wide: true,
-    body: `<div class="frow c2">${fld('Datum', inp('datum', n.datum, 'date'))}${fld('Art', `<select name="typ">${typOptions(notizTyp(n))}</select>`)}</div><div class="frow">${fld('Text', `<textarea name="text" rows="10">${esc(n.text)}</textarea>`)}</div>`,
-    onSave: o => pListe(pid, 'notizen', l => l.map(x => x.id === n.id ? { ...x, datum: o.datum || x.datum, typ: o.typ, text: o.text } : x)),
-    onDelete: () => pListe(pid, 'notizen', l => l.filter(x => x.id !== n.id))
+    title: 'Protokoll bearbeiten', wide: true,
+    body: `<div class="frow c4">${fld('Datum', inp('datum', n.datum, 'date'))}${fld('Art', `<select name="typ">${typOptions(notizTyp(n))}</select>`)}${fld('Dauer', inp('dauer', log ? hm(log.minuten) : '', 'text', 'placeholder="0:30"'))}<label class="chk" style="align-self:end;padding-bottom:10px"><input type="checkbox" name="verrechenbar" ${!log || log.verrechenbar !== false ? 'checked' : ''}>verrechenbar</label></div>
+      <div class="frow">${fld('Titel (erscheint als Tätigkeit)', inp('titel', n.titel || ''))}</div>
+      <div class="frow">${fld('Protokoll / Details', `<textarea name="text" rows="10">${esc(n.text || '')}</textarea>`)}</div>
+      ${log && log.rechnungId ? '<div class="note">Die Tätigkeit ist bereits verrechnet. Dauer und Löschen sind gesperrt.</div>' : '<div class="small muted">Dauer leer = nur Protokoll, eine verknüpfte Tätigkeit wird entfernt.</div>'}`,
+    onSave: o => notizSpeichern(pid, n, o),
+    onDelete: () => { if (log && log.rechnungId) return toast('Tätigkeit bereits verrechnet - zuerst Rechnung löschen'); if (log) del('logs', log.id); pListe(pid, 'notizen', l => l.filter(x => x.id !== n.id)); }
   });
 }
 function personModal(pid) {
@@ -790,7 +818,7 @@ document.addEventListener('submit', e => {
   const o = Object.fromEntries(new FormData(f)), pid = f.dataset.p;
   if (f.dataset.form === 'todoAdd' && o.text.trim()) pListe(pid, 'todos', l => [...l, { id: uid(), text: o.text.trim(), faellig: o.faellig || '', erledigt: false }]);
   if (f.dataset.form === 'linkAdd' && o.url.trim()) pListe(pid, 'links', l => [...l, { id: uid(), titel: o.titel.trim(), url: /^https?:\/\//.test(o.url.trim()) ? o.url.trim() : 'https://' + o.url.trim() }]);
-  if (f.dataset.form === 'notizAdd' && o.text.trim()) pListe(pid, 'notizen', l => [...l, { id: uid(), datum: o.datum || today(), typ: o.typ || 'Notiz', text: o.text.trim() }]);
+  if (f.dataset.form === 'notizAdd' && notizSpeichern(pid, null, o) === false) return;
   if (f.dataset.form === 'settings') { const { logo, ...rest } = o; saveSet({ ...rest, iban: ibanClean(o.iban), frist: num(o.frist), mwstGrenze: num(o.mwstGrenze) }); toast('Gespeichert'); }
   document.activeElement && document.activeElement.blur(); schedule();
 });
