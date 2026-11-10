@@ -169,3 +169,9 @@ table.t{width:100%;border-collapse:collapse}
 @media (max-width:1100px){.card .frow[style*="2fr 1fr 2fr"]{grid-template-columns:1fr 1fr!important}}
 
 .ntyp.sp{background:#E3F1F3;color:#036C70}.ntyp.tm{background:#E8E9F8;color:#4B53BC}
+
+.icb svg{transition:transform .15s}
+.icb.on{background:var(--greenT);border-color:transparent}
+.icb.on svg{transform:rotate(45deg)}
+.addbox{background:#FAFAF7;border:1px solid var(--line2);border-radius:12px;padding:12px 12px 4px;margin:4px 0 10px}
+.addbox .frow{margin-bottom:8px}

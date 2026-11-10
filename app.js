@@ -1,5 +1,5 @@
 // Datenscheune - Zeiterfassung, Projekte, Rechnungen. Daten lokal oder in Firestore (datenscheune/main/...).
-const VERSION = '0.6.0';
+const VERSION = '0.7.0';
 
 /* ---------- Helfer ---------- */
 const $ = (s, el = document) => el.querySelector(s);
@@ -49,6 +49,9 @@ const IC = {
   plus: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>'
 };
 const icBtn = (ic, act, attrs = '', title = '') => `<button class="icb" data-act="${act}" ${attrs} title="${title}" aria-label="${title}">${IC[ic]}</button>`;
+const addOpen = k => !!UI.open[k];
+const cardHead = (title, k) => `<div class="ch"><h2>${title}</h2><button class="icb ${addOpen(k) ? 'on' : ''}" data-act="toggleAdd" data-k="${k}" title="${addOpen(k) ? 'Schliessen' : 'Hinzufügen'}" aria-label="Hinzufügen">${IC.plus}</button></div>`;
+const addForm = (k, html) => addOpen(k) ? `<div class="addbox">${html}</div>` : '';
 const logoImg = (f, sz = 40) => f && f.logo ? `<img class="flogo" src="${f.logo}" alt="" style="width:${sz}px;height:${sz}px">` : '';
 
 function setSync(st, title) { const el = $('#sync'); if (el) { el.className = 'sync ' + st; el.title = title || ''; } }
@@ -150,12 +153,12 @@ function migrieren() {
 /* ---------- Router ---------- */
 let rq = false;
 function schedule() { if (rq) return; rq = true; requestAnimationFrame(() => { rq = false; render(); }); }
-const UI = { logMonat: today().slice(0, 7), logFirma: '', logProjekt: '', logTag: '', logStatus: '', qa: { datum: today(), projektId: '', text: '', dauer: '', tags: '[]', verrechenbar: true }, pStatus: 'Offen', pFirma: '', rStatus: '', spJahr: String(new Date().getFullYear()) };
+const UI = { logMonat: today().slice(0, 7), logFirma: '', logProjekt: '', logTag: '', logStatus: '', qa: { datum: today(), projektId: '', text: '', dauer: '', tags: '[]', verrechenbar: true }, pStatus: 'Offen', pFirma: '', open: {}, rStatus: '', spJahr: String(new Date().getFullYear()) };
 
 function render() {
   if (mode === 'firebase' && !USER) return;
   const h = location.hash.replace(/^#\/?/, '') || 'dashboard';
-  const ae = document.activeElement, navi = h !== render.last; render.last = h;
+  const ae = document.activeElement, navi = h !== render.last; render.last = h; if (navi) UI.open = {};
   let keep = null;
   if (!navi && ae && $('#view').contains(ae) && (ae.tagName === 'TEXTAREA' || (ae.tagName === 'INPUT' && /^(text|number|email|tel|url|date)$/.test(ae.type)))) {
     const inl = ae.dataset.ff ? `[data-ff="${ae.dataset.ff}"]` : ae.dataset.pf ? `[data-pf="${ae.dataset.pf}"]` : null;
@@ -167,7 +170,9 @@ function render() {
   const navTab = { projekt: 'projekte', firma: 'firmen' }[tab] || tab;
   $$('#nav a').forEach(a => a.classList.toggle('on', a.dataset.tab === navTab));
   migrieren();
+  const keepF = navi ? [] : $$('#view .addbox [name]').map(el => ({ k: el.closest('form').dataset.form + '|' + el.name, v: el.type === 'checkbox' ? el.checked : el.value, cb: el.type === 'checkbox' }));
   $('#view').innerHTML = V(id);
+  keepF.forEach(x => { const [fm, nm] = x.k.split('|'); const el = $(`#view form[data-form="${fm}"] [name="${nm}"]`); if (!el) return; if (x.cb) el.checked = x.v; else el.value = x.v; if (el.type === 'hidden' && el.closest('[data-tagin]')) tagRefresh(el.closest('[data-tagin]')); if (el.dataset.act === 'personWahl') { const fr = $('.pfrei', el.closest('form')); fr && fr.classList.toggle('hidden', el.value !== '__neu'); } });
   if (keep) { const el = $(keep.sel, $('#view')); if (el) { el.value = keep.v; el.focus(); try { el.setSelectionRange(keep.a, keep.b); } catch (e) { } } }
 }
 window.addEventListener('hashchange', schedule);
@@ -180,6 +185,7 @@ function tagInner(sel, q) {
   const sugg = allTags().filter(t => !sel.includes(t) && (!q || t.toLowerCase().includes(q.toLowerCase()))).slice(0, 12);
   return `${sel.map(t => `<span class="tag">${esc(t)}<button type="button" data-tagdel="${esc(t)}" aria-label="entfernen">×</button></span>`).join('')}<input class="tagtxt" type="text" placeholder="${sel.length ? '' : 'Tag eingeben, Enter'}" value="${esc(q)}"><div class="sugg">${sugg.map(t => `<button type="button" class="tag" data-tagadd="${esc(t)}">${esc(t)}</button>`).join('')}</div>`;
 }
+function tagRefresh(box) { const h = $('input[type=hidden]', box); let sel = []; try { sel = JSON.parse(h.value || '[]'); } catch (e) { } [...box.children].forEach(c => { if (c !== h) c.remove(); }); box.insertAdjacentHTML('beforeend', tagInner(sel, '')); }
 function tagSet(box, fn) {
   const h = $('input[type=hidden]', box); let sel = []; try { sel = JSON.parse(h.value || '[]'); } catch (e) { }
   sel = fn(sel); h.value = JSON.stringify(sel); h.dispatchEvent(new Event('input', { bubbles: true }));
@@ -358,15 +364,15 @@ function vFirma(id) {
   const ps = S.projekte.filter(p => p.firmaId === id), rs = S.rechnungen.filter(r => r.firmaId === id).sort((a, b) => b.datum.localeCompare(a.datum));
   const ol = offeneLogs(id), ow = ol.reduce((a, l) => a + logWert(l), 0) + offeneSpesen(id).reduce((a, s) => a + num(s.betrag), 0);
   const ff = (label, k, type = 'text', attrs = '') => fld(label, `<input type="${type}" data-ff="${k}" data-f="${id}" value="${esc(f[k] ?? '')}" ${attrs}>`);
-  return `<div class="head"><label class="logoup" title="Logo hochladen">${f.logo ? logoImg(f, 56) : `<span class="logoph">${IC.plus}<small>Logo</small></span>`}<input type="file" accept="image/png,image/jpeg,image/svg+xml" class="hidden" data-act="firmaLogo" data-f="${id}"></label><h1><a href="#/firmen" class="small" style="text-decoration:none">‹ Firmen</a><br>${esc(f.name)}<span class="sub">${esc(adrZeilen(f).join(', '))}${f.archiv ? ' · <span class="b">archiviert</span>' : ''}</span></h1><button class="btn" data-act="projektNeu" data-firma="${id}">+ Projekt</button>${ol.length ? `<button class="btn pri" data-act="rechnungNeu" data-firma="${id}">Rechnung erstellen</button>` : ''}${icBtn('trash', 'firmaDel', `data-id="${id}"`, 'Firma löschen')}</div>
+  return `<div class="head"><label class="logoup" title="Logo hochladen">${f.logo ? logoImg(f, 56) : `<span class="logoph">${IC.plus}<small>Logo</small></span>`}<input type="file" accept="image/png,image/jpeg,image/svg+xml" class="hidden" data-act="firmaLogo" data-f="${id}"></label><h1><a href="#/firmen" class="small" style="text-decoration:none">‹ Firmen</a><br>${esc(f.name)}<span class="sub">${esc(adrZeilen(f).join(', '))}${f.archiv ? ' · <span class="b">archiviert</span>' : ''}</span></h1>${ol.length ? `<button class="btn pri" data-act="rechnungNeu" data-firma="${id}">Rechnung erstellen</button>` : ''}${icBtn('trash', 'firmaDel', `data-id="${id}"`, 'Firma löschen')}</div>
   <div class="card"><h2>Firmendaten</h2>
     <div class="frow" style="grid-template-columns:2fr 1fr 2fr .7fr .8fr 1.4fr .6fr">${ff('Firmenname', 'name')}${ff('Stundensatz CHF', 'ansatz', 'number', 'step="0.05" min="0"')}${ff('Strasse', 'strasse')}${ff('Nr.', 'nr')}${ff('PLZ', 'plz')}${ff('Ort', 'ort')}${ff('Land', 'land', 'text', 'maxlength="2"')}</div>
     <div class="frow">${fld('Notiz', `<textarea data-ff="notiz" data-f="${id}" rows="3">${esc(f.notiz || '')}</textarea>`)}</div>
     <div class="btns" style="align-items:center"><label class="chk"><input type="checkbox" data-ff="archiv" data-f="${id}" ${f.archiv ? 'checked' : ''}>archiviert</label>${f.logo ? '<button class="btn sm danger" data-act="firmaLogoDel" data-id="' + id + '">Logo entfernen</button>' : ''}<span class="small muted">Änderungen werden automatisch gespeichert. Logo: oben links anklicken.</span></div></div>
   <div class="kpis"><div class="kpi"><span>Stundensatz</span><b>${f.ansatz ? 'CHF ' + chf(num(f.ansatz)) : '-'}</b></div><div class="kpi"><span>Nicht verrechnet</span><b>CHF ${chf(ow)}</b><small>${hm(sumMin(ol))} h</small></div><div class="kpi"><span>Verrechnet total</span><b>CHF ${chf(rs.filter(r => r.status !== 'storniert').reduce((a, r) => a + num(r.total), 0))}</b></div></div>
   <div class="grid g2">
-    <div class="card"><div class="ch"><h2>Ansprechpartner</h2>${icBtn('plus', 'kontaktNeu', `data-firma="${id}"`, 'Ansprechpartner erfassen')}</div>${(f.kontakte || []).length ? `<div class="list">${f.kontakte.map(k => kontaktLi(k, `data-act="kontaktEdit" data-firma="${id}" data-k="${k.id}"`)).join('')}</div>` : '<div class="empty">Keine Ansprechpartner</div>'}</div>
-    <div class="card"><h2>Projekte</h2>${ps.length ? `<div class="list">${ps.map(p => `<a class="li" href="#/projekt/${p.id}" style="text-decoration:none;color:inherit"><div class="grow"><b>${esc(p.name)}</b><div class="small muted">Ansatz CHF ${chf(ansatz(p))}${num(p.ansatz) ? '' : ' (Firma)'}</div></div><span class="b ${STC[p.status] || ''}">${esc(p.status)}</span></a>`).join('')}</div>` : '<div class="empty">Keine Projekte</div>'}</div>
+    <div class="card">${cardHead('Ansprechpartner', 'kontakt')}${addForm('kontakt', `<form data-form="kontaktAdd" data-f="${id}" autocomplete="off">${personFelder({})}<div style="text-align:right;margin-bottom:8px"><button class="btn pri">Hinzufügen</button></div></form>`)}${(f.kontakte || []).length ? `<div class="list">${f.kontakte.map(k => kontaktLi(k, `data-act="kontaktEdit" data-firma="${id}" data-k="${k.id}"`)).join('')}</div>` : '<div class="empty">Keine Ansprechpartner</div>'}</div>
+    <div class="card">${cardHead('Projekte', 'fprojekt')}${addForm('fprojekt', `<form data-form="projektAdd" data-f="${id}" autocomplete="off"><div class="frow" style="grid-template-columns:1fr 150px auto;align-items:end">${fld('Projektname', '<input type="text" name="name">')}${fld('Status', `<select name="status">${STATUS.map(s => `<option>${s}</option>`).join('')}</select>`)}<button class="btn pri">Hinzufügen</button></div></form>`)}${ps.length ? `<div class="list">${ps.map(p => `<a class="li" href="#/projekt/${p.id}" style="text-decoration:none;color:inherit"><div class="grow"><b>${esc(p.name)}</b><div class="small muted">Ansatz CHF ${chf(ansatz(p))}${num(p.ansatz) ? '' : ' (Firma)'}</div></div><span class="b ${STC[p.status] || ''}">${esc(p.status)}</span></a>`).join('')}</div>` : '<div class="empty">Keine Projekte</div>'}</div>
   </div>
   <div class="card"><h2>Rechnungen</h2>${rTable(rs)}</div>`;
 }
@@ -447,24 +453,24 @@ function vProjekt(id) {
   const todos = [...(p.todos || [])].sort((a, b) => (a.erledigt - b.erledigt) || ((a.faellig || '9999') < (b.faellig || '9999') ? -1 : 1));
   const d = today(), x = (act, t) => `<button class="btn sm ghost" data-act="${act}" data-p="${id}" data-t="${t}" title="Entfernen">✕</button>`;
   return `<div class="head">${logoImg(f, 52)}<h1><a href="#/projekte" class="small" style="text-decoration:none">‹ Projekte</a><br>${esc(p.name)}<span class="sub"><a href="#/firma/${f.id}">${esc(f.name || '?')}</a> · <span class="b ${STC[p.status] || ''}">${esc(p.status)}</span></span></h1>
-    <button class="btn pri" data-act="logNeuP" data-id="${id}">+ Tätigkeit</button>${icBtn('trash', 'projektDel', `data-id="${id}"`, 'Projekt löschen')}</div>
+    ${icBtn('trash', 'projektDel', `data-id="${id}"`, 'Projekt löschen')}</div>
   <div class="card"><h2>Projektdaten</h2>
     <div class="frow" style="grid-template-columns:2fr 1.4fr 1.3fr 1fr">${fld('Projektname', `<input type="text" data-pf="name" data-p="${id}" value="${esc(p.name)}">`)}${fld('Firma', `<select data-pf="firmaId" data-p="${id}">${firmaOptions(p.firmaId)}</select>`)}${fld('Status', `<select data-pf="status" data-p="${id}">${STATUS.map(s => `<option ${s === p.status ? 'selected' : ''}>${s}</option>`).join('')}</select>`)}${fld('Stundensatz CHF', `<input type="number" step="0.05" min="0" data-pf="ansatz" data-p="${id}" value="${num(p.ansatz) || ''}" placeholder="Firma: ${chf(num(f.ansatz))}">`)}</div>
     ${fld('Beschreibung / Ziel', `<textarea data-pf="beschreibung" data-p="${id}" rows="2">${esc(p.beschreibung || '')}</textarea>`)}
     <div class="small muted" style="margin-top:6px">Änderungen werden automatisch gespeichert. Stundensatz leer = Standard der Firma.</div></div>
   <div class="kpis"><div class="kpi"><span>Stundensatz</span><b>CHF ${chf(ansatz(p))}</b><small>${num(p.ansatz) ? 'Projektansatz' : 'Standard der Firma'}</small></div><div class="kpi"><span>Stunden total</span><b>${hm(sumMin(ls))} h</b></div><div class="kpi"><span>Nicht verrechnet</span><b>CHF ${chf(ol.reduce((a, l) => a + logWert(l), 0))}</b><small>${hm(sumMin(ol))} h</small></div></div>
   <div class="grid g2">
-    <div class="card"><h2>To-dos</h2><form class="frow" data-form="todoAdd" data-p="${id}" style="grid-template-columns:1fr 140px auto"><input type="text" name="text" placeholder="Neues To-do"><input type="date" name="faellig"><button class="btn pri">+</button></form>
+    <div class="card">${cardHead('To-dos', 'todo')}${addForm('todo', `<form class="frow" data-form="todoAdd" data-p="${id}" style="grid-template-columns:1fr 140px auto" autocomplete="off"><input type="text" name="text" placeholder="Neues To-do"><input type="date" name="faellig"><button class="btn pri">Hinzufügen</button></form>`)}
       ${todos.length ? `<div class="list">${todos.map(t => `<div class="li ${t.erledigt ? 'done' : ''}"><input type="checkbox" data-act="todoToggle" data-p="${id}" data-t="${t.id}" ${t.erledigt ? 'checked' : ''}><div class="grow">${esc(t.text)}</div>${t.faellig ? `<span class="b ${!t.erledigt && t.faellig < d ? 'red' : ''}">${fmt(t.faellig)}</span>` : ''}${x('todoDel', t.id)}</div>`).join('')}</div>` : '<div class="empty">Keine To-dos</div>'}</div>
-    <div class="card"><div class="ch"><h2>Personen</h2>${icBtn('plus', 'personNeu', `data-p="${id}"`, 'Person hinzufügen')}</div>${pers.length || ext.length ? `<div class="list">${pers.map(k => kontaktLi(k, `data-act="kontaktEdit" data-firma="${f.id}" data-k="${k.id}"`, '', x('personRemove', k.id))).join('')}${ext.map(k => kontaktLi(k, `data-act="externEdit" data-p="${id}" data-k="${k.id}"`, ` <span class="b blue">${esc(k.org || 'extern')}</span>`, x('externRemove', k.id))).join('')}</div>` : '<div class="empty">Keine Personen</div>'}</div>
+    <div class="card">${cardHead('Personen', 'person')}${addForm('person', personForm(p, f))}${pers.length || ext.length ? `<div class="list">${pers.map(k => kontaktLi(k, `data-act="kontaktEdit" data-firma="${f.id}" data-k="${k.id}"`, '', x('personRemove', k.id))).join('')}${ext.map(k => kontaktLi(k, `data-act="externEdit" data-p="${id}" data-k="${k.id}"`, ` <span class="b blue">${esc(k.org || 'extern')}</span>`, x('externRemove', k.id))).join('')}</div>` : '<div class="empty">Keine Personen</div>'}</div>
   </div>
-  <div class="card"><h2>Links &amp; Dokumente</h2><form class="frow" data-form="linkAdd" data-p="${id}" style="grid-template-columns:1fr 2fr auto"><input type="text" name="titel" placeholder="Titel"><input type="url" name="url" placeholder="https://..."><button class="btn pri">+</button></form>
+  <div class="card">${cardHead('Links &amp; Dokumente', 'link')}${addForm('link', `<form class="frow" data-form="linkAdd" data-p="${id}" style="grid-template-columns:1fr 2fr auto" autocomplete="off"><input type="text" name="titel" placeholder="Titel"><input type="url" name="url" placeholder="https://..."><button class="btn pri">Hinzufügen</button></form>`)}
     ${(p.links || []).length ? `<div class="list">${p.links.map(k => { const t = linkTyp(k.url); return `<div class="li"><span class="ntyp ${t.c}" title="${t.n}">${t.i}</span><div class="grow"><a href="${esc(k.url)}" target="_blank" rel="noopener" title="${esc(k.url)}">${esc(k.titel || linkHost(k.url))}</a><div class="small muted">${t.n}</div></div>${x('linkDel', k.id)}</div>`; }).join('')}</div>` : '<div class="empty">Keine Links</div>'}</div>
-  <div class="card"><h2>Notizen / Protokolle</h2><form data-form="notizAdd" data-p="${id}" autocomplete="off"><div class="frow" style="grid-template-columns:140px 120px 1fr 100px auto;align-items:end">${fld('Datum', `<input type="date" name="datum" value="${today()}">`)}${fld('Art', `<select name="typ">${typOptions('Meeting')}</select>`)}${fld('Titel (erscheint als Tätigkeit)', '<input type="text" name="titel" placeholder="z.B. Call Markus">')}${fld('Dauer', '<input type="text" name="dauer" placeholder="0:30">')}<label class="chk" style="padding-bottom:10px"><input type="checkbox" name="verrechenbar" checked>verrechenbar</label></div>
+  <div class="card">${cardHead('Notizen / Protokolle', 'notiz')}${addForm('notiz', `<form data-form="notizAdd" data-p="${id}" autocomplete="off"><div class="frow" style="grid-template-columns:140px 120px 1fr 100px auto;align-items:end">${fld('Datum', `<input type="date" name="datum" value="${today()}">`)}${fld('Art', `<select name="typ">${typOptions('Meeting')}</select>`)}${fld('Titel (erscheint als Tätigkeit)', '<input type="text" name="titel" placeholder="z.B. Call Markus">')}${fld('Dauer', '<input type="text" name="dauer" placeholder="0:30">')}<label class="chk" style="padding-bottom:10px"><input type="checkbox" name="verrechenbar" checked>verrechenbar</label></div>
       <div class="frow" style="grid-template-columns:1fr auto;align-items:end"><textarea name="text" rows="3" placeholder="Protokoll / Details ..."></textarea><button class="btn pri" style="height:38px">Erfassen</button></div>
-      <div class="small muted" style="margin:-4px 0 8px">Mit Dauer wird automatisch eine Tätigkeit erstellt (Text = Titel). Ohne Dauer nur Protokoll.</div></form>
+      <div class="small muted" style="margin:-4px 0 8px">Mit Dauer wird automatisch eine Tätigkeit erstellt (Text = Titel). Ohne Dauer nur Protokoll.</div></form>`)}
     ${(p.notizen || []).length ? `<div class="list">${[...p.notizen].sort((a, b) => b.datum.localeCompare(a.datum)).map(n => { const t = notizTyp(n); return `<div class="li click" style="align-items:flex-start" data-act="notizEdit" data-p="${id}" data-t="${n.id}"><span class="ntyp" title="${t}">${NTYP[t]}</span><div style="width:84px" class="small"><b>${fmt(n.datum)}</b><div class="muted">${t}</div></div><div class="grow">${n.titel ? `<b>${esc(n.titel)}</b>` : ''}${n.text ? `<div style="white-space:pre-wrap">${esc(n.text)}</div>` : ''}</div>${notizLogBadge(n)}</div>`; }).join('')}</div>` : ''}</div>
-  <div class="card"><h2>Tätigkeiten</h2>${logTable(ls, false)}</div>`;
+  <div class="card">${cardHead('Tätigkeiten', 'log')}${addForm('log', `<form data-form="logAdd" data-p="${id}" autocomplete="off"><div class="frow" style="grid-template-columns:140px 1fr 100px 1fr auto;align-items:end">${fld('Datum', `<input type="date" name="datum" value="${today()}">`)}${fld('Tätigkeit', '<input type="text" name="text" placeholder="Was hast du gemacht?">')}${fld('Dauer', '<input type="text" name="dauer" placeholder="1:30">')}${fld('Tags', tagInput('tags', []))}<label class="chk" style="padding-bottom:10px"><input type="checkbox" name="verrechenbar" checked>verrechenbar</label></div><div style="text-align:right;margin-bottom:8px"><button class="btn pri">Erfassen</button></div></form>`)}${logTable(ls, false)}</div>`;
 }
 const CLOCK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="vertical-align:-1px"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
 function notizLogBadge(n) { const l = n.logId && S.logs.find(x => x.id === n.logId); if (!l) return ''; return `<span class="b ${l.rechnungId ? 'blue' : l.verrechenbar === false ? '' : 'green'}" title="${l.rechnungId ? 'verrechnet' : l.verrechenbar === false ? 'nicht verrechenbar' : 'offen'}">${CLOCK} ${hm(l.minuten)} h</span>`; }
@@ -497,20 +503,10 @@ function notizModal(pid, n) {
     onDelete: () => { if (log && log.rechnungId) return toast('Tätigkeit bereits verrechnet - zuerst Rechnung löschen'); if (log) del('logs', log.id); pListe(pid, 'notizen', l => l.filter(x => x.id !== n.id)); }
   });
 }
-function personModal(pid) {
-  const p = projekt(pid); if (!p) return; const f = pFirma(p) || {};
+function personForm(p, f) {
   const frei = (f.kontakte || []).filter(k => !(p.personen || []).includes(k.id));
-  const ov = modal({
-    title: 'Person hinzufügen', wide: true,
-    body: `<div class="frow">${fld('Person', `<select name="wahl" id="pmWahl">${frei.map(k => `<option value="${k.id}">${esc(k.name)}${k.funktion ? ' (' + esc(k.funktion) + ')' : ''} - ${esc(f.name)}</option>`).join('')}<option value="__neu" ${frei.length ? '' : 'selected'}>Andere Person (Freitext) ...</option></select>`)}</div>
-      <div id="pmFrei" class="${frei.length ? 'hidden' : ''}">${personFelder({}, true)}</div>`,
-    onSave: o => {
-      if (o.wahl !== '__neu') { pListe(pid, 'personen', l => l.includes(o.wahl) ? l : [...l, o.wahl]); return; }
-      if (!o.name) { toast('Name fehlt'); return false; }
-      pListe(pid, 'externe', l => [...l, { id: uid(), name: o.name, org: o.org, funktion: o.funktion, email: o.email, tel: o.tel, notiz: o.notiz }]);
-    }
-  });
-  $('#pmWahl', ov).onchange = e => $('#pmFrei', ov).classList.toggle('hidden', e.target.value !== '__neu');
+  return `<form data-form="personAdd" data-p="${p.id}" autocomplete="off"><div class="frow">${fld('Person', `<select name="wahl" data-act="personWahl">${frei.map(k => `<option value="${k.id}">${esc(k.name)}${k.funktion ? ' (' + esc(k.funktion) + ')' : ''} - ${esc(f.name || '')}</option>`).join('')}<option value="__neu" ${frei.length ? '' : 'selected'}>Andere Person (Freitext) ...</option></select>`)}</div>
+    <div class="pfrei ${frei.length ? 'hidden' : ''}">${personFelder({}, true)}</div><div style="text-align:right;margin-bottom:8px"><button class="btn pri">Hinzufügen</button></div></form>`;
 }
 function persBox(firmaId, sel = []) { const f = firma(firmaId); return f && (f.kontakte || []).length ? f.kontakte.map(k => `<label class="chk"><input type="checkbox" name="personen[]" value="${k.id}" ${sel.includes(k.id) ? 'checked' : ''}>${esc(k.name)}${k.funktion ? ` <span class="muted">(${esc(k.funktion)})</span>` : ''}</label>`).join('') : '<span class="small muted">Keine Ansprechpartner bei dieser Firma erfasst</span>'; }
 function projektModal(p = {}) {
@@ -786,7 +782,8 @@ document.addEventListener('click', e => {
     firmaLogoDel: () => { const f = firma(id); if (f) put('firmen', { ...f, logo: '' }); },
     firmaDel: () => { if (S.projekte.some(p => p.firmaId === id)) return toast('Firma hat Projekte - zuerst löschen oder "archiviert" setzen'); if (confirm('Firma löschen?')) { del('firmen', id); location.hash = '#/firmen'; } },
     kontaktNeu: () => kontaktModal(b.dataset.firma), kontaktEdit: () => { if (e.target.closest('a')) return; const f = firma(b.dataset.firma); kontaktModal(b.dataset.firma, ((f && f.kontakte) || []).find(k => k.id === b.dataset.k)); },
-    personNeu: () => personModal(b.dataset.p), externNeu: () => externModal(b.dataset.p),
+    toggleAdd: () => { const k = b.dataset.k; UI.open[k] = !UI.open[k]; render(); if (UI.open[k]) { const nb = $(`#view [data-act=toggleAdd][data-k="${k}"]`); const el = nb && $(`.addbox input:not([type=hidden]):not([type=date]):not([type=checkbox]), .addbox select`, nb.closest('.card')); el && el.focus(); } },
+    externNeu: () => externModal(b.dataset.p),
     personRemove: () => { e.stopPropagation(); pListe(b.dataset.p, 'personen', l => l.filter(x => x !== b.dataset.t)); },
     externRemove: () => { e.stopPropagation(); if (confirm('Person entfernen?')) pListe(b.dataset.p, 'externe', l => l.filter(x => x.id !== b.dataset.t)); },
     notizEdit: () => { const p = projekt(b.dataset.p); const n = p && (p.notizen || []).find(x => x.id === b.dataset.t); if (n) notizModal(b.dataset.p, n); },
@@ -805,6 +802,7 @@ document.addEventListener('click', e => {
   };
   if (A[a]) { if (b.tagName !== 'INPUT') e.preventDefault(); A[a](); }
 });
+document.addEventListener('change', e => { const t = e.target; if (t.dataset && t.dataset.act === 'personWahl') { const fr = $('.pfrei', t.closest('form')); fr.classList.toggle('hidden', t.value !== '__neu'); if (t.value === '__neu') $('input[name=name]', fr).focus(); } });
 document.addEventListener('change', e => {
   const t = e.target; if (t.type !== 'file' || !t.files[0]) return;
   if (t.dataset.act === 'logo') logoLaden(t.files[0]);
@@ -819,6 +817,21 @@ document.addEventListener('submit', e => {
   if (f.dataset.form === 'todoAdd' && o.text.trim()) pListe(pid, 'todos', l => [...l, { id: uid(), text: o.text.trim(), faellig: o.faellig || '', erledigt: false }]);
   if (f.dataset.form === 'linkAdd' && o.url.trim()) pListe(pid, 'links', l => [...l, { id: uid(), titel: o.titel.trim(), url: /^https?:\/\//.test(o.url.trim()) ? o.url.trim() : 'https://' + o.url.trim() }]);
   if (f.dataset.form === 'notizAdd' && notizSpeichern(pid, null, o) === false) return;
+  if (f.dataset.form === 'logAdd') {
+    const min = parseDauer(o.dauer), tt = $('.tagtxt', f); let tags = JSON.parse(o.tags || '[]'); if (tt && tt.value.trim() && !tags.includes(tt.value.trim())) tags.push(tt.value.trim());
+    if (!min) return toast('Dauer fehlt oder ungültig (z.B. 1:30)');
+    put('logs', { datum: o.datum || today(), projektId: pid, text: (o.text || '').trim(), minuten: min, tags, verrechenbar: !!o.verrechenbar }); toast('Erfasst');
+  }
+  if (f.dataset.form === 'personAdd') {
+    if (o.wahl !== '__neu') pListe(pid, 'personen', l => l.includes(o.wahl) ? l : [...l, o.wahl]);
+    else { if (!(o.name || '').trim()) return toast('Name fehlt'); pListe(pid, 'externe', l => [...l, { id: uid(), name: o.name.trim(), org: o.org, funktion: o.funktion, email: o.email, tel: o.tel, notiz: o.notiz }]); }
+  }
+  if (f.dataset.form === 'projektAdd') { if (!(o.name || '').trim()) return toast('Projektname fehlt'); put('projekte', { firmaId: f.dataset.f, name: o.name.trim(), status: o.status || 'Offen', ansatz: 0, beschreibung: '', personen: [], externe: [], todos: [], notizen: [], links: [] }); toast('Projekt erstellt'); }
+  if (f.dataset.form === 'kontaktAdd') {
+    const fi = firma(f.dataset.f); if (!fi) return; if (!(o.name || '').trim()) return toast('Name fehlt');
+    put('firmen', { ...fi, kontakte: [...(fi.kontakte || []), { id: uid(), name: o.name.trim(), funktion: o.funktion, email: o.email, tel: o.tel, notiz: o.notiz }] });
+  }
+  for (const [k, fm] of [['todo', 'todoAdd'], ['link', 'linkAdd'], ['notiz', 'notizAdd'], ['log', 'logAdd'], ['person', 'personAdd'], ['kontakt', 'kontaktAdd'], ['fprojekt', 'projektAdd']]) if (f.dataset.form === fm) UI.open[k] = false;
   if (f.dataset.form === 'settings') { const { logo, ...rest } = o; saveSet({ ...rest, iban: ibanClean(o.iban), frist: num(o.frist), mwstGrenze: num(o.mwstGrenze) }); toast('Gespeichert'); }
   document.activeElement && document.activeElement.blur(); schedule();
 });
