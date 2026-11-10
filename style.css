@@ -148,3 +148,13 @@ table.t{width:100%;border-collapse:collapse}
 .login .card{max-width:380px;width:100%;text-align:center;padding:30px 26px}
 .login img{border-radius:18px}
 .login h1{margin:14px 0 4px;font-size:24px}
+
+/* v0.2 */
+.ch{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.ch h2{margin:0}
+.icb{width:36px;height:36px;border-radius:10px;border:1px solid var(--line);background:#fff;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:var(--green);flex:0 0 auto}
+.icb:hover{background:var(--greenT);border-color:transparent}
+.li.click{cursor:pointer;border-radius:8px}
+.li.click:hover{background:#FAFAF7}
+.flogo{object-fit:contain;border-radius:10px;background:#fff;box-shadow:var(--shadow);flex:0 0 auto}
+.head .flogo{padding:4px}

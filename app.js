@@ -1,5 +1,5 @@
 // Datenscheune - Zeiterfassung, Projekte, Rechnungen. Daten lokal oder in Firestore (datenscheune/main/...).
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 
 /* ---------- Helfer ---------- */
 const $ = (s, el = document) => el.querySelector(s);
@@ -40,8 +40,15 @@ const COLLS = ['firmen', 'projekte', 'logs', 'spesen', 'rechnungen'];
 const S = { loaded: {}, set: { ...DEF } }; COLLS.forEach(c => S[c] = []);
 const ROOT = ['datenscheune', 'main'];
 let W = null, mode = 'local', USER = null, AUTH = null;
-const STATUS = ['Idee', 'Offeriert', 'Aktiv', 'Pausiert', 'Abgeschlossen'];
-const STC = { Idee: '', Offeriert: 'blue', Aktiv: 'green', Pausiert: 'warn', Abgeschlossen: '' };
+const STATUS = ['Offen', 'On hold', 'Abgeschlossen'];
+const STC = { Offen: 'green', 'On hold': 'warn', Abgeschlossen: '' };
+const ALT_STATUS = { Idee: 'Offen', Offeriert: 'Offen', Aktiv: 'Offen', Pausiert: 'On hold' };
+const IC = {
+  edit: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+  plus: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>'
+};
+const icBtn = (ic, act, attrs = '', title = '') => `<button class="icb" data-act="${act}" ${attrs} title="${title}" aria-label="${title}">${IC[ic]}</button>`;
+const logoImg = (f, sz = 40) => f && f.logo ? `<img class="flogo" src="${f.logo}" alt="" style="width:${sz}px;height:${sz}px">` : '';
 
 function setSync(st, title) { const el = $('#sync'); if (el) { el.className = 'sync ' + st; el.title = title || ''; } }
 function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2600); }
@@ -103,7 +110,7 @@ function loginScreen(msg) {
 
 function start() {
   $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
-  schedule(); setInterval(tickTimer, 1000);
+  schedule();
 }
 
 function put(c, o) { o.id = o.id || uid(); o.geaendert = Date.now(); W.put(c, o); return o; }
@@ -134,10 +141,15 @@ function projektOptions(sel, nurAktiv = true) {
 const firmaOptions = (sel, leer = '- Firma wählen -') => `<option value="">${leer}</option>` + sortFirmen().filter(f => !f.archiv || f.id === sel).map(f => `<option value="${f.id}" ${f.id === sel ? 'selected' : ''}>${esc(f.name)}</option>`).join('');
 const adrZeilen = o => [o.strasse ? `${o.strasse}${o.nr ? ' ' + o.nr : ''}` : '', [o.plz, o.ort].filter(Boolean).join(' ')].filter(Boolean);
 
+function migrieren() {
+  if (!S.loaded.projekte) return;
+  S.projekte.filter(p => !STATUS.includes(p.status)).forEach(p => put('projekte', { ...p, status: ALT_STATUS[p.status] || 'Offen' }));
+}
+
 /* ---------- Router ---------- */
 let rq = false;
 function schedule() { if (rq) return; rq = true; requestAnimationFrame(() => { rq = false; render(); }); }
-const UI = { logMonat: today().slice(0, 7), logFirma: '', logProjekt: '', logTag: '', logStatus: '', qa: { datum: today(), projektId: '', text: '', dauer: '', tags: '[]', verrechenbar: true }, pStatus: 'offen', rStatus: '', spJahr: String(new Date().getFullYear()) };
+const UI = { logMonat: today().slice(0, 7), logFirma: '', logProjekt: '', logTag: '', logStatus: '', qa: { datum: today(), projektId: '', text: '', dauer: '', tags: '[]', verrechenbar: true }, pStatus: 'Offen', rStatus: '', spJahr: String(new Date().getFullYear()) };
 
 function render() {
   if (mode === 'firebase' && !USER) return;
@@ -148,25 +160,10 @@ function render() {
   const V = { dashboard: vDashboard, logs: vLogs, projekte: vProjekte, projekt: vProjekt, firmen: vFirmen, firma: vFirma, spesen: vSpesen, rechnungen: vRechnungen, einstellungen: vEinstellungen }[tab] || vDashboard;
   const navTab = { projekt: 'projekte', firma: 'firmen' }[tab] || tab;
   $$('#nav a').forEach(a => a.classList.toggle('on', a.dataset.tab === navTab));
+  migrieren();
   $('#view').innerHTML = V(id);
-  renderTimer();
 }
 window.addEventListener('hashchange', schedule);
-
-/* ---------- Timer ---------- */
-function renderTimer() {
-  const t = S.set.timer, el = $('#timerbox');
-  el.innerHTML = t ? `<div class="t" id="timerTxt">${timerTxt()}</div><div class="p">${esc(t.projektId ? pName(t.projektId) : 'Kein Projekt')}</div><button class="btn lime" data-act="timerStop">Stopp &amp; erfassen</button>`
-    : `<div class="p" style="margin-top:0">Timer</div><button class="btn" data-act="timerStart">Start</button>`;
-}
-function timerTxt() { const t = S.set.timer; if (!t) return ''; const s = Math.max(0, Math.floor((Date.now() - t.start) / 1000)); return `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; }
-function tickTimer() { const el = $('#timerTxt'); if (el) el.textContent = timerTxt(); }
-function timerStart(projektId = '') { saveSet({ timer: { start: Date.now(), projektId: projektId || UI.qa.projektId || '' } }); toast('Timer gestartet'); }
-function timerStop() {
-  const t = S.set.timer; if (!t) return;
-  let min = Math.max(1, Math.round((Date.now() - t.start) / 60000)); const r = num(S.set.rundung); if (r > 0) min = Math.ceil(min / r) * r;
-  logModal({ datum: iso(new Date(t.start)), projektId: t.projektId, minuten: min, verrechenbar: true, tags: [] }, () => saveSet({ timer: null }));
-}
 
 /* ---------- Tag-Eingabe ---------- */
 function tagInput(name, sel = [], qa = false) {
@@ -233,7 +230,7 @@ function vDashboard() {
   const ums = umsatzJahr(y), gr = num(S.set.mwstGrenze) || 100000, pct = Math.min(100, ums / gr * 100);
   const todos = []; S.projekte.filter(p => p.status !== 'Abgeschlossen').forEach(p => (p.todos || []).filter(t => !t.erledigt).forEach(t => todos.push({ p, t })));
   todos.sort((a, b) => (a.t.faellig || '9999') < (b.t.faellig || '9999') ? -1 : 1);
-  const aktiv = S.projekte.filter(p => p.status === 'Aktiv');
+  const aktiv = S.projekte.filter(p => p.status === 'Offen');
   const letzte = [...S.logs].sort((a, b) => (b.datum + (b.geaendert || '')).localeCompare(a.datum + (a.geaendert || ''))).slice(0, 8);
   const leer = !S.firmen.length ? `<div class="card"><h2>Erste Schritte</h2><ol style="margin:0;padding-left:18px;line-height:1.9"><li><a href="#/einstellungen">Einstellungen</a>: eigene Adresse und IBAN erfassen</li><li><a href="#/firmen">Firma</a> mit Ansprechpartner und Stundensatz anlegen</li><li><a href="#/projekte">Projekt</a> anlegen</li><li>In der <a href="#/logs">Zeiterfassung</a> Tätigkeiten erfassen</li><li><a href="#/rechnungen">Rechnung</a> erstellen</li></ol></div>` : '';
   return `<div class="head"><h1>Dashboard<span class="sub">${fmt(d)}</span></h1><button class="btn pri" data-act="logNeu">+ Tätigkeit</button></div>${leer}
@@ -246,7 +243,7 @@ function vDashboard() {
   </div>
   <div class="grid g2">
     <div class="card"><h2>Offene To-dos</h2>${todos.length ? `<div class="list">${todos.slice(0, 12).map(({ p, t }) => `<div class="li"><input type="checkbox" class="chk" data-act="todoToggle" data-p="${p.id}" data-t="${t.id}"><div class="grow">${esc(t.text)}<div class="small muted"><a href="#/projekt/${p.id}">${esc(p.name)}</a> · ${esc(fName(p.firmaId))}</div></div>${t.faellig ? `<span class="b ${t.faellig < d ? 'red' : t.faellig <= addDays(d, 7) ? 'warn' : ''}">${fmt(t.faellig)}</span>` : ''}</div>`).join('')}</div>` : '<div class="empty">Keine offenen To-dos</div>'}</div>
-    <div class="card"><h2>Aktive Projekte</h2>${aktiv.length ? `<div class="list">${aktiv.map(p => { const ol = offeneLogs().filter(l => l.projektId === p.id); return `<a class="li" href="#/projekt/${p.id}" style="text-decoration:none;color:inherit"><div class="grow"><b>${esc(p.name)}</b><div class="small muted">${esc(fName(p.firmaId))}</div></div><span class="small muted">${hm(sumMin(ol))} h offen</span></a>`; }).join('')}</div>` : '<div class="empty">Keine aktiven Projekte</div>'}</div>
+    <div class="card"><h2>Offene Projekte</h2>${aktiv.length ? `<div class="list">${aktiv.map(p => { const ol = offeneLogs().filter(l => l.projektId === p.id); return `<a class="li" href="#/projekt/${p.id}" style="text-decoration:none;color:inherit"><div class="grow"><b>${esc(p.name)}</b><div class="small muted">${esc(fName(p.firmaId))}</div></div><span class="small muted">${hm(sumMin(ol))} h offen</span></a>`; }).join('')}</div>` : '<div class="empty">Keine offenen Projekte</div>'}</div>
   </div>
   <div class="card"><h2>Zuletzt erfasst</h2>${logTable(letzte, false)}</div>`;
 }
@@ -271,7 +268,7 @@ function logFilter() {
 function vLogs() {
   const q = UI.qa, ls = logFilter(), tot = sumMin(ls), ver = sumMin(ls.filter(l => l.verrechenbar !== false)), wert = ls.reduce((a, l) => a + logWert(l), 0);
   let qtags = []; try { qtags = JSON.parse(q.tags || '[]'); } catch (e) { }
-  return `<div class="head"><h1>Zeiterfassung</h1><button class="btn" data-act="csv">CSV-Export</button><button class="btn" data-act="timerStartQA">Timer starten</button></div>
+  return `<div class="head"><h1>Zeiterfassung</h1><button class="btn" data-act="csv">CSV-Export</button></div>
   <form class="card" id="quick" autocomplete="off"><div class="quick">
     ${fld('Datum', `<input type="date" name="datum" data-qa="datum" value="${esc(q.datum)}">`)}
     ${fld('Projekt', `<select name="projektId" data-qa="projektId">${projektOptions(q.projektId)}</select>`)}
@@ -331,61 +328,86 @@ function download(data, name, type) { const a = document.createElement('a'); a.h
 function vFirmen() {
   const fs = sortFirmen();
   return `<div class="head"><h1>Firmen</h1><button class="btn pri" data-act="firmaNeu">+ Firma</button></div>
-  <div class="card">${fs.length ? `<table class="t"><thead><tr><th>Firma</th><th>Ort</th><th>Ansprechpartner</th><th class="num">Ansatz</th><th class="num">Projekte</th><th class="num">Offen</th></tr></thead><tbody>${fs.map(f => { const ol = offeneLogs(f.id); return `<tr class="click" data-href="#/firma/${f.id}"><td><b>${esc(f.name)}</b>${f.archiv ? ' <span class="b">archiviert</span>' : ''}</td><td>${esc([f.plz, f.ort].filter(Boolean).join(' '))}</td><td>${esc((f.kontakte || []).map(k => k.name).join(', '))}</td><td class="num">${f.ansatz ? 'CHF ' + chf(num(f.ansatz)) : '-'}</td><td class="num">${S.projekte.filter(p => p.firmaId === f.id && p.status !== 'Abgeschlossen').length}</td><td class="num">${hm(sumMin(ol))} h</td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Noch keine Firmen erfasst</div>'}</div>`;
+  <div class="card">${fs.length ? `<table class="t"><thead><tr><th>Firma</th><th>Ort</th><th>Ansprechpartner</th><th class="num">Ansatz</th><th class="num">Projekte</th><th class="num">Offen</th></tr></thead><tbody>${fs.map(f => { const ol = offeneLogs(f.id); return `<tr class="click" data-href="#/firma/${f.id}"><td><div style="display:flex;align-items:center;gap:10px">${logoImg(f, 28)}<span><b>${esc(f.name)}</b>${f.archiv ? ' <span class="b">archiviert</span>' : ''}</span></div></td><td>${esc([f.plz, f.ort].filter(Boolean).join(' '))}</td><td>${esc((f.kontakte || []).map(k => k.name).join(', '))}</td><td class="num">${f.ansatz ? 'CHF ' + chf(num(f.ansatz)) : '-'}</td><td class="num">${S.projekte.filter(p => p.firmaId === f.id && p.status !== 'Abgeschlossen').length}</td><td class="num">${hm(sumMin(ol))} h</td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Noch keine Firmen erfasst</div>'}</div>`;
 }
 function vFirma(id) {
   const f = firma(id); if (!f) return '<div class="empty">Firma nicht gefunden</div>';
   const ps = S.projekte.filter(p => p.firmaId === id), rs = S.rechnungen.filter(r => r.firmaId === id).sort((a, b) => b.datum.localeCompare(a.datum));
   const ol = offeneLogs(id), ow = ol.reduce((a, l) => a + logWert(l), 0) + offeneSpesen(id).reduce((a, s) => a + num(s.betrag), 0);
-  return `<div class="head"><h1><a href="#/firmen" class="small" style="text-decoration:none">‹ Firmen</a><br>${esc(f.name)}<span class="sub">${esc(adrZeilen(f).join(', '))}</span></h1><button class="btn" data-act="firmaEdit" data-id="${id}">Bearbeiten</button><button class="btn" data-act="projektNeu" data-firma="${id}">+ Projekt</button>${ol.length ? `<button class="btn pri" data-act="rechnungNeu" data-firma="${id}">Rechnung erstellen</button>` : ''}</div>
+  return `<div class="head">${logoImg(f, 52)}<h1><a href="#/firmen" class="small" style="text-decoration:none">‹ Firmen</a><br>${esc(f.name)}<span class="sub">${esc(adrZeilen(f).join(', '))}</span></h1>${icBtn('edit', 'firmaEdit', `data-id="${id}"`, 'Firma bearbeiten')}<button class="btn" data-act="projektNeu" data-firma="${id}">+ Projekt</button>${ol.length ? `<button class="btn pri" data-act="rechnungNeu" data-firma="${id}">Rechnung erstellen</button>` : ''}</div>
   <div class="kpis"><div class="kpi"><span>Stundensatz</span><b>${f.ansatz ? 'CHF ' + chf(num(f.ansatz)) : '-'}</b></div><div class="kpi"><span>Nicht verrechnet</span><b>CHF ${chf(ow)}</b><small>${hm(sumMin(ol))} h</small></div><div class="kpi"><span>Verrechnet total</span><b>CHF ${chf(rs.filter(r => r.status !== 'storniert').reduce((a, r) => a + num(r.total), 0))}</b></div></div>
   <div class="grid g2">
-    <div class="card"><h2>Ansprechpartner</h2>${(f.kontakte || []).length ? `<div class="list">${f.kontakte.map(k => `<div class="li"><div class="grow"><b>${esc(k.name)}</b>${k.funktion ? ` <span class="muted">· ${esc(k.funktion)}</span>` : ''}<div class="small">${k.email ? `<a href="mailto:${esc(k.email)}">${esc(k.email)}</a>` : ''}${k.email && k.tel ? ' · ' : ''}${k.tel ? `<a href="tel:${esc(k.tel)}">${esc(k.tel)}</a>` : ''}</div></div></div>`).join('')}</div>` : '<div class="empty">Keine Ansprechpartner</div>'}${f.notiz ? `<p class="small" style="white-space:pre-wrap;margin-top:10px">${esc(f.notiz)}</p>` : ''}</div>
+    <div class="card"><div class="ch"><h2>Ansprechpartner</h2>${icBtn('plus', 'kontaktNeu', `data-firma="${id}"`, 'Ansprechpartner erfassen')}</div>${(f.kontakte || []).length ? `<div class="list">${f.kontakte.map(k => kontaktLi(k, `data-act="kontaktEdit" data-firma="${id}" data-k="${k.id}"`)).join('')}</div>` : '<div class="empty">Keine Ansprechpartner</div>'}${f.notiz ? `<p class="small" style="white-space:pre-wrap;margin-top:10px">${esc(f.notiz)}</p>` : ''}</div>
     <div class="card"><h2>Projekte</h2>${ps.length ? `<div class="list">${ps.map(p => `<a class="li" href="#/projekt/${p.id}" style="text-decoration:none;color:inherit"><div class="grow"><b>${esc(p.name)}</b><div class="small muted">Ansatz CHF ${chf(ansatz(p))}${num(p.ansatz) ? '' : ' (Firma)'}</div></div><span class="b ${STC[p.status] || ''}">${esc(p.status)}</span></a>`).join('')}</div>` : '<div class="empty">Keine Projekte</div>'}</div>
   </div>
   <div class="card"><h2>Rechnungen</h2>${rTable(rs)}</div>`;
 }
-function kRow(k = {}) { return `<div class="krow"><input type="hidden" name="kid[]" value="${esc(k.id || uid())}"><input type="text" name="kname[]" placeholder="Name" value="${esc(k.name || '')}"><input type="text" name="kfunktion[]" placeholder="Funktion" value="${esc(k.funktion || '')}"><input type="email" name="kemail[]" placeholder="E-Mail" value="${esc(k.email || '')}"><input type="tel" name="ktel[]" placeholder="Telefon" value="${esc(k.tel || '')}"><button type="button" class="btn sm ghost" data-act="kDel">✕</button></div>`; }
-function firmaModal(f = {}) {
+function kontaktLi(k, attrs, extra = '') {
+  return `<div class="li click" ${attrs}><div class="grow"><b>${esc(k.name)}</b>${k.funktion ? ` <span class="muted">· ${esc(k.funktion)}</span>` : ''}${extra}<div class="small">${k.email ? `<a href="mailto:${esc(k.email)}">${esc(k.email)}</a>` : ''}${k.email && k.tel ? ' · ' : ''}${k.tel ? `<a href="tel:${esc(k.tel)}">${esc(k.tel)}</a>` : ''}</div>${k.notiz ? `<div class="small muted" style="white-space:pre-wrap;margin-top:2px">${esc(k.notiz)}</div>` : ''}</div></div>`;
+}
+const personFelder = (k, firmaFeld = false) => `<div class="frow c2">${fld('Name', inp('name', k.name))}${firmaFeld ? fld('Firma / Organisation', inp('org', k.org)) : fld('Funktion', inp('funktion', k.funktion))}</div>
+  ${firmaFeld ? `<div class="frow">${fld('Funktion / Rolle', inp('funktion', k.funktion))}</div>` : ''}
+  <div class="frow c2">${fld('E-Mail', inp('email', k.email, 'email'))}${fld('Telefon', inp('tel', k.tel, 'tel'))}</div>
+  <div class="frow">${fld('Notizen', `<textarea name="notiz" rows="4">${esc(k.notiz || '')}</textarea>`)}</div>`;
+function kontaktModal(firmaId, k = {}) {
+  const f = firma(firmaId); if (!f) return;
   modal({
+    title: k.id ? 'Ansprechpartner bearbeiten' : 'Neuer Ansprechpartner', body: personFelder(k),
+    onSave: o => {
+      if (!o.name) { toast('Name fehlt'); return false; }
+      const n = { ...k, id: k.id || uid(), name: o.name, funktion: o.funktion, email: o.email, tel: o.tel, notiz: o.notiz };
+      const ks = [...(f.kontakte || [])], i = ks.findIndex(x => x.id === n.id); if (i >= 0) ks[i] = n; else ks.push(n);
+      put('firmen', { ...f, kontakte: ks });
+    },
+    onDelete: k.id ? () => put('firmen', { ...f, kontakte: (f.kontakte || []).filter(x => x.id !== k.id) }) : null
+  });
+}
+function bildKlein(file, max, cb) {
+  const rd = new FileReader(); rd.onload = () => { const img = new Image(); img.onload = () => { const sc = Math.min(1, max / Math.max(img.width, img.height)), c = document.createElement('canvas'); c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); cb(c.toDataURL('image/png')); }; img.src = rd.result; }; rd.readAsDataURL(file);
+}
+function firmaModal(f = {}) {
+  const ov = modal({
     title: f.id ? 'Firma bearbeiten' : 'Neue Firma', wide: true,
     body: `<div class="frow c2">${fld('Firmenname', inp('name', f.name))}${fld('Stundensatz CHF (Standard)', inp('ansatz', f.ansatz || '', 'number', 'step="0.05" min="0"'))}</div>
       <div class="frow c4">${fld('Strasse', inp('strasse', f.strasse))}${fld('Nr.', inp('nr', f.nr))}${fld('PLZ', inp('plz', f.plz))}${fld('Ort', inp('ort', f.ort))}</div>
-      <div class="frow c4">${fld('Land', inp('land', f.land || 'CH', 'text', 'maxlength="2"'))}</div>
-      <h2 style="margin-top:14px">Ansprechpartner</h2><div id="krows">${(f.kontakte && f.kontakte.length ? f.kontakte : [{}]).map(kRow).join('')}</div><button type="button" class="btn sm" data-act="kAdd">+ Ansprechpartner</button>
-      <div class="frow" style="margin-top:12px">${fld('Notiz', `<textarea name="notiz" rows="2">${esc(f.notiz || '')}</textarea>`)}</div>
+      <div class="frow c4">${fld('Land', inp('land', f.land || 'CH', 'text', 'maxlength="2"'))}${fld('Web', inp('web', f.web))}</div>
+      <div class="frow">${fld('Firmenlogo (PNG/JPG)', `<input type="file" accept="image/png,image/jpeg,image/svg+xml" id="fmLogoFile"><input type="hidden" name="logo" id="fmLogo" value="${esc(f.logo || '')}">`)}</div>
+      <div class="btns" id="fmLogoPrev" style="align-items:center;margin:-2px 0 10px">${f.logo ? `<img src="${f.logo}" class="flogo" style="width:56px;height:56px"><button type="button" class="btn sm danger" id="fmLogoDel">Logo entfernen</button>` : ''}</div>
+      <div class="frow">${fld('Notiz', `<textarea name="notiz" rows="3">${esc(f.notiz || '')}</textarea>`)}</div>
       ${f.id ? `<label class="chk"><input type="checkbox" name="archiv" ${f.archiv ? 'checked' : ''}>archiviert</label>` : ''}`,
     onSave: o => {
       if (!o.name) { toast('Firmenname fehlt'); return false; }
-      const kontakte = (o.kname || []).map((n, i) => ({ id: o.kid[i], name: n.trim(), funktion: (o.kfunktion[i] || '').trim(), email: (o.kemail[i] || '').trim(), tel: (o.ktel[i] || '').trim() })).filter(k => k.name);
-      const x = put('firmen', { ...f, name: o.name, ansatz: num(o.ansatz), strasse: o.strasse, nr: o.nr, plz: o.plz, ort: o.ort, land: (o.land || 'CH').toUpperCase(), notiz: o.notiz, kontakte, archiv: !!o.archiv });
+      const x = put('firmen', { kontakte: [], ...f, name: o.name, ansatz: num(o.ansatz), strasse: o.strasse, nr: o.nr, plz: o.plz, ort: o.ort, land: (o.land || 'CH').toUpperCase(), web: o.web, logo: o.logo || '', notiz: o.notiz, archiv: !!o.archiv });
       if (!f.id) location.hash = '#/firma/' + x.id;
     },
     onDelete: f.id ? () => { if (S.projekte.some(p => p.firmaId === f.id)) { toast('Firma hat Projekte - zuerst löschen oder archivieren'); return; } del('firmen', f.id); location.hash = '#/firmen'; } : null
   });
+  const prev = v => { $('#fmLogo', ov).value = v; $('#fmLogoPrev', ov).innerHTML = v ? `<img src="${v}" class="flogo" style="width:56px;height:56px"><button type="button" class="btn sm danger" id="fmLogoDel">Logo entfernen</button>` : ''; };
+  $('#fmLogoFile', ov).onchange = e => { const fl = e.target.files[0]; if (fl) bildKlein(fl, 256, prev); };
+  $('#fmLogoPrev', ov).addEventListener('click', e => { if (e.target.id === 'fmLogoDel') prev(''); });
 }
 
 /* ---------- Projekte ---------- */
 function vProjekte() {
-  const ps = S.projekte.filter(p => UI.pStatus === 'alle' || (UI.pStatus === 'offen' ? p.status !== 'Abgeschlossen' : p.status === UI.pStatus))
+  const ps = S.projekte.filter(p => UI.pStatus === 'alle' || p.status === UI.pStatus)
     .sort((a, b) => STATUS.indexOf(a.status) - STATUS.indexOf(b.status) || a.name.localeCompare(b.name, 'de'));
-  return `<div class="head"><h1>Projekte</h1><div class="seg">${[['offen', 'Offen'], ...STATUS.map(s => [s, s]), ['alle', 'Alle']].map(([v, t]) => `<button data-act="pStatus" data-v="${v}" class="${UI.pStatus === v ? 'on' : ''}">${t}</button>`).join('')}</div><button class="btn pri" data-act="projektNeu">+ Projekt</button></div>
+  return `<div class="head"><h1>Projekte</h1><div class="seg">${[...STATUS.map(s => [s, s]), ['alle', 'Alle']].map(([v, t]) => `<button data-act="pStatus" data-v="${v}" class="${UI.pStatus === v ? 'on' : ''}">${t}</button>`).join('')}</div><button class="btn pri" data-act="projektNeu">+ Projekt</button></div>
   ${ps.length ? `<div class="pcards">${ps.map(p => { const ls = S.logs.filter(l => l.projektId === p.id), td = (p.todos || []).filter(t => !t.erledigt).length; return `<a class="pcard" href="#/projekt/${p.id}"><span class="b ${STC[p.status] || ''}">${esc(p.status)}</span><h3>${esc(p.name)}</h3><div class="small muted">${esc(fName(p.firmaId))}</div><div class="meta"><span>${hm(sumMin(ls))} h total</span><span>${td} To-do${td === 1 ? '' : 's'}</span><span>CHF ${chf(ansatz(p))}/h</span></div></a>`; }).join('')}</div>` : '<div class="card empty">Keine Projekte</div>'}`;
 }
 function vProjekt(id) {
   const p = projekt(id); if (!p) return '<div class="empty">Projekt nicht gefunden</div>';
   const f = pFirma(p) || {}, ls = S.logs.filter(l => l.projektId === id), ol = ls.filter(l => !l.rechnungId && l.verrechenbar !== false);
-  const pers = (f.kontakte || []).filter(k => (p.personen || []).includes(k.id));
+  const pers = (f.kontakte || []).filter(k => (p.personen || []).includes(k.id)), ext = p.externe || [];
   const todos = [...(p.todos || [])].sort((a, b) => (a.erledigt - b.erledigt) || ((a.faellig || '9999') < (b.faellig || '9999') ? -1 : 1));
   const d = today();
   return `<div class="head"><h1><a href="#/projekte" class="small" style="text-decoration:none">‹ Projekte</a><br>${esc(p.name)}<span class="sub"><a href="#/firma/${f.id}">${esc(f.name || '?')}</a> · <span class="b ${STC[p.status] || ''}">${esc(p.status)}</span>${p.start || p.ende ? ` · ${fmt(p.start)} - ${fmt(p.ende)}` : ''}</span></h1>
-    <button class="btn" data-act="projektEdit" data-id="${id}">Bearbeiten</button><button class="btn" data-act="timerStartP" data-id="${id}">Timer starten</button><button class="btn pri" data-act="logNeuP" data-id="${id}">+ Tätigkeit</button></div>
+    <button class="btn" data-act="projektEdit" data-id="${id}">Bearbeiten</button><button class="btn pri" data-act="logNeuP" data-id="${id}">+ Tätigkeit</button></div>
   <div class="kpis"><div class="kpi"><span>Stundensatz</span><b>CHF ${chf(ansatz(p))}</b><small>${num(p.ansatz) ? 'Projektansatz' : 'Standard der Firma'}</small></div><div class="kpi"><span>Stunden total</span><b>${hm(sumMin(ls))} h</b></div><div class="kpi"><span>Nicht verrechnet</span><b>CHF ${chf(ol.reduce((a, l) => a + logWert(l), 0))}</b><small>${hm(sumMin(ol))} h</small></div></div>
   ${p.beschreibung ? `<div class="card" style="white-space:pre-wrap">${esc(p.beschreibung)}</div>` : ''}
   <div class="grid g2">
     <div class="card"><h2>To-dos</h2><form class="frow" data-form="todoAdd" data-p="${id}" style="grid-template-columns:1fr 140px auto"><input type="text" name="text" placeholder="Neues To-do"><input type="date" name="faellig"><button class="btn pri">+</button></form>
       ${todos.length ? `<div class="list">${todos.map(t => `<div class="li ${t.erledigt ? 'done' : ''}"><input type="checkbox" data-act="todoToggle" data-p="${id}" data-t="${t.id}" ${t.erledigt ? 'checked' : ''}><div class="grow">${esc(t.text)}</div>${t.faellig ? `<span class="b ${!t.erledigt && t.faellig < d ? 'red' : ''}">${fmt(t.faellig)}</span>` : ''}<button class="btn sm ghost" data-act="todoDel" data-p="${id}" data-t="${t.id}">✕</button></div>`).join('')}</div>` : '<div class="empty">Keine To-dos</div>'}</div>
-    <div class="card"><h2>Personen</h2>${pers.length ? `<div class="list">${pers.map(k => `<div class="li"><div class="grow"><b>${esc(k.name)}</b>${k.funktion ? ` <span class="muted">· ${esc(k.funktion)}</span>` : ''}<div class="small">${k.email ? `<a href="mailto:${esc(k.email)}">${esc(k.email)}</a>` : ''}${k.email && k.tel ? ' · ' : ''}${k.tel ? esc(k.tel) : ''}</div></div></div>`).join('')}</div>` : '<div class="empty">Keine Personen zugeordnet (Bearbeiten)</div>'}
+    <div class="card"><div class="ch"><h2>Personen</h2>${icBtn('plus', 'externNeu', `data-p="${id}"`, 'Person manuell hinzufügen')}</div>${pers.length || ext.length ? `<div class="list">${pers.map(k => kontaktLi(k, `data-act="kontaktEdit" data-firma="${f.id}" data-k="${k.id}"`)).join('')}${ext.map(k => kontaktLi(k, `data-act="externEdit" data-p="${id}" data-k="${k.id}"`, ` <span class="b blue">${esc(k.org || 'extern')}</span>`)).join('')}</div>` : '<div class="empty">Keine Personen. Ansprechpartner der Firma unter "Bearbeiten" zuordnen, andere mit +</div>'}
       <h2 style="margin-top:16px">Links &amp; Dokumente</h2><form class="frow" data-form="linkAdd" data-p="${id}" style="grid-template-columns:1fr 1.4fr auto"><input type="text" name="titel" placeholder="Titel"><input type="url" name="url" placeholder="https://..."><button class="btn pri">+</button></form>
       ${(p.links || []).length ? `<div class="list">${p.links.map(k => `<div class="li"><div class="grow"><a href="${esc(k.url)}" target="_blank" rel="noopener">${esc(k.titel || k.url)}</a></div><button class="btn sm ghost" data-act="linkDel" data-p="${id}" data-t="${k.id}">✕</button></div>`).join('')}</div>` : ''}</div>
   </div>
@@ -398,7 +420,7 @@ function projektModal(p = {}) {
   const ov = modal({
     title: p.id ? 'Projekt bearbeiten' : 'Neues Projekt', wide: true,
     body: `<div class="frow c2">${fld('Projektname', inp('name', p.name))}${fld('Firma', `<select name="firmaId" id="pmFirma">${firmaOptions(p.firmaId)}</select>`)}</div>
-      <div class="frow c4">${fld('Status', `<select name="status">${STATUS.map(s => `<option ${s === (p.status || 'Aktiv') ? 'selected' : ''}>${s}</option>`).join('')}</select>`)}${fld('Stundensatz CHF', inp('ansatz', p.ansatz || '', 'number', `step="0.05" min="0" id="pmAnsatz" placeholder="${p.firmaId ? 'Firma: ' + chf(num((firma(p.firmaId) || {}).ansatz)) : 'Standard Firma'}"`))}${fld('Start', inp('start', p.start, 'date'))}${fld('Ende', inp('ende', p.ende, 'date'))}</div>
+      <div class="frow c4">${fld('Status', `<select name="status">${STATUS.map(s => `<option ${s === (p.status || 'Offen') ? 'selected' : ''}>${s}</option>`).join('')}</select>`)}${fld('Stundensatz CHF', inp('ansatz', p.ansatz || '', 'number', `step="0.05" min="0" id="pmAnsatz" placeholder="${p.firmaId ? 'Firma: ' + chf(num((firma(p.firmaId) || {}).ansatz)) : 'Standard Firma'}"`))}${fld('Start', inp('start', p.start, 'date'))}${fld('Ende', inp('ende', p.ende, 'date'))}</div>
       <div class="small muted" style="margin:-4px 0 10px">Stundensatz leer = Standard der Firma</div>
       <div class="frow">${fld('Beschreibung / Ziel', `<textarea name="beschreibung" rows="3">${esc(p.beschreibung || '')}</textarea>`)}</div>
       <div class="f" style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px">Personen</div><div id="pmPers" style="display:flex;flex-wrap:wrap;gap:6px 16px">${persBox(p.firmaId, p.personen || [])}</div>`,
@@ -410,6 +432,13 @@ function projektModal(p = {}) {
     onDelete: p.id ? () => { if (S.logs.some(l => l.projektId === p.id)) { toast('Projekt hat Tätigkeiten - Status "Abgeschlossen" setzen statt löschen'); return; } del('projekte', p.id); location.hash = '#/projekte'; } : null
   });
   $('#pmFirma', ov).onchange = e => { $('#pmPers', ov).innerHTML = persBox(e.target.value, []); $('#pmAnsatz', ov).placeholder = e.target.value ? 'Firma: ' + chf(num((firma(e.target.value) || {}).ansatz)) : 'Standard Firma'; };
+}
+function externModal(pid, k = {}) {
+  modal({
+    title: k.id ? 'Person bearbeiten' : 'Person hinzufügen', body: personFelder(k, true),
+    onSave: o => { if (!o.name) { toast('Name fehlt'); return false; } const n = { ...k, id: k.id || uid(), name: o.name, org: o.org, funktion: o.funktion, email: o.email, tel: o.tel, notiz: o.notiz }; pListe(pid, 'externe', l => { const i = l.findIndex(x => x.id === n.id); if (i >= 0) l[i] = n; else l.push(n); return l; }); },
+    onDelete: k.id ? () => pListe(pid, 'externe', l => l.filter(x => x.id !== k.id)) : null
+  });
 }
 function pListe(pid, key, fn) { const p = projekt(pid); if (!p) return; put('projekte', { ...p, [key]: fn([...(p[key] || [])]) }); }
 
@@ -626,7 +655,7 @@ function vEinstellungen() {
     <h2 style="margin-top:16px">Zahlung &amp; Rechnung</h2>
     <div class="frow c2">${fld(`IBAN / QR-IBAN ${ib}`, inp('iban', s.iban, 'text', 'placeholder="CH.. .... .... .... .... ."'))}${fld('Zahlungsfrist Standard (Tage)', inp('frist', s.frist, 'number', 'min="0"'))}</div>
     <div class="frow">${fld('Fusstext Rechnung', `<textarea name="fusstext" rows="3">${esc(s.fusstext)}</textarea>`)}</div>
-    <div class="frow c2">${fld('MWST-Grenze CHF', inp('mwstGrenze', s.mwstGrenze, 'number'))}${fld('Timer runden auf Minuten (0 = nicht runden)', inp('rundung', s.rundung, 'number', 'min="0"'))}</div>
+    <div class="frow c2">${fld('MWST-Grenze CHF', inp('mwstGrenze', s.mwstGrenze, 'number'))}</div>
     <div class="frow">${fld('Logo (PNG/JPG, erscheint auf Rechnung)', `<input type="file" accept="image/png,image/jpeg" data-act="logo">`)}</div>
     ${s.logo ? `<div class="btns" style="align-items:center;margin-bottom:10px"><img src="${s.logo}" style="max-height:50px;max-width:200px"><button type="button" class="btn sm danger" data-act="logoDel">Logo entfernen</button></div>` : ''}
     <button class="btn pri">Speichern</button></form>
@@ -647,17 +676,18 @@ document.addEventListener('click', e => {
   const b = e.target.closest('[data-act],[data-tagadd],[data-tagdel]'); if (!b) return;
   if (b.dataset.tagadd) { e.preventDefault(); const v = b.dataset.tagadd; tagSet(b.closest('[data-tagin]'), s => s.includes(v) ? s : [...s, v]); return; }
   if (b.dataset.tagdel) { e.preventDefault(); const v = b.dataset.tagdel; tagSet(b.closest('[data-tagin]'), s => s.filter(x => x !== v)); return; }
+  const lk = e.target.closest('a[href]'); if (lk && lk !== b && b.contains(lk)) return;
   const a = b.dataset.act, id = b.dataset.id;
   if (b.tagName === 'INPUT' && b.type === 'file') return;
   const A = {
     logNeu: () => logModal({ projektId: UI.qa.projektId }),
     logNeuP: () => logModal({ projektId: id }),
     logEdit: () => logModal(S.logs.find(l => l.id === id)),
-    timerStart: () => timerStart(), timerStartQA: () => timerStart(), timerStartP: () => timerStart(id), timerStop,
     csv: csvExport,
     alleMonate: () => { UI.logMonat = UI.logMonat ? '' : today().slice(0, 7); schedule(); },
     firmaNeu: () => firmaModal(), firmaEdit: () => firmaModal(firma(id)),
-    kAdd: () => $('#krows').insertAdjacentHTML('beforeend', kRow()), kDel: () => b.closest('.krow').remove(),
+    kontaktNeu: () => kontaktModal(b.dataset.firma), kontaktEdit: () => { if (e.target.closest('a')) return; const f = firma(b.dataset.firma); kontaktModal(b.dataset.firma, ((f && f.kontakte) || []).find(k => k.id === b.dataset.k)); },
+    externNeu: () => externModal(b.dataset.p), externEdit: () => { if (e.target.closest('a')) return; const p = projekt(b.dataset.p); externModal(b.dataset.p, ((p && p.externe) || []).find(k => k.id === b.dataset.k)); },
     projektNeu: () => projektModal({ firmaId: b.dataset.firma || '' }), projektEdit: () => projektModal(projekt(id)),
     pStatus: () => { UI.pStatus = b.dataset.v; schedule(); }, rStatus: () => { UI.rStatus = b.dataset.v; schedule(); },
     todoToggle: () => pListe(b.dataset.p, 'todos', l => l.map(t => t.id === b.dataset.t ? { ...t, erledigt: !t.erledigt, erledigtAm: !t.erledigt ? today() : '' } : t)),
@@ -686,7 +716,7 @@ document.addEventListener('submit', e => {
   if (f.dataset.form === 'todoAdd' && o.text.trim()) pListe(pid, 'todos', l => [...l, { id: uid(), text: o.text.trim(), faellig: o.faellig || '', erledigt: false }]);
   if (f.dataset.form === 'linkAdd' && o.url.trim()) pListe(pid, 'links', l => [...l, { id: uid(), titel: o.titel.trim(), url: /^https?:\/\//.test(o.url.trim()) ? o.url.trim() : 'https://' + o.url.trim() }]);
   if (f.dataset.form === 'notizAdd' && o.text.trim()) pListe(pid, 'notizen', l => [...l, { id: uid(), datum: o.datum || today(), text: o.text.trim() }]);
-  if (f.dataset.form === 'settings') { const { logo, ...rest } = o; saveSet({ ...rest, iban: ibanClean(o.iban), frist: num(o.frist), mwstGrenze: num(o.mwstGrenze), rundung: num(o.rundung) }); toast('Gespeichert'); }
+  if (f.dataset.form === 'settings') { const { logo, ...rest } = o; saveSet({ ...rest, iban: ibanClean(o.iban), frist: num(o.frist), mwstGrenze: num(o.mwstGrenze) }); toast('Gespeichert'); }
   document.activeElement && document.activeElement.blur(); schedule();
 });
 document.addEventListener('keydown', e => { if (e.key === 'n' && e.altKey) { e.preventDefault(); logModal({ projektId: UI.qa.projektId }); } });
