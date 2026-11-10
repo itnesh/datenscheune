@@ -1,5 +1,5 @@
 // Datenscheune - Zeiterfassung, Projekte, Rechnungen. Daten lokal oder in Firestore (datenscheune/main/...).
-const VERSION = '0.9.0';
+const VERSION = '0.9.1';
 
 /* ---------- Helfer ---------- */
 const $ = (s, el = document) => el.querySelector(s);
@@ -256,7 +256,7 @@ function vDashboard() {
   const ums = umsatzJahr(y), gr = num(S.set.mwstGrenze) || 100000, pct = Math.min(100, ums / gr * 100);
   const todos = []; S.projekte.filter(p => p.status !== 'Done').forEach(p => (p.todos || []).filter(t => !t.erledigt).forEach(t => todos.push({ p, t })));
   todos.sort((a, b) => (a.t.faellig || '9999') < (b.t.faellig || '9999') ? -1 : 1);
-  const aktiv = S.projekte.filter(p => p.status === 'In Arbeit');
+  const aktiv = S.projekte.filter(p => p.status !== 'Done').sort((a, b) => STATUS.indexOf(a.status) - STATUS.indexOf(b.status) || a.name.localeCompare(b.name, 'de'));
   const letzte = [...S.logs].sort((a, b) => (b.datum + (b.geaendert || '')).localeCompare(a.datum + (a.geaendert || ''))).slice(0, 8);
   const leer = !S.firmen.length ? `<div class="card"><h2>Erste Schritte</h2><ol style="margin:0;padding-left:18px;line-height:1.9"><li><a href="#/einstellungen">Einstellungen</a>: eigene Adresse und IBAN erfassen</li><li><a href="#/firmen">Firma</a> mit Ansprechpartner und Stundensatz anlegen</li><li><a href="#/projekte">Projekt</a> anlegen</li><li>In der <a href="#/logs">Zeiterfassung</a> Tätigkeiten erfassen</li><li><a href="#/rechnungen">Rechnung</a> erstellen</li></ol></div>` : '';
   return `<div class="head"><h1>Dashboard<span class="sub">${fmt(d)}</span></h1><button class="btn pri" data-act="logNeu">+ Tätigkeit</button></div>${leer}
@@ -269,7 +269,7 @@ function vDashboard() {
   </div>
   <div class="grid g2">
     <div class="card"><h2>Offene To-dos</h2>${todos.length ? `<div class="list">${todos.slice(0, 12).map(({ p, t }) => `<div class="li"><input type="checkbox" class="chk" data-act="todoToggle" data-p="${p.id}" data-t="${t.id}"><div class="grow">${esc(t.text)}<div class="small muted"><a href="#/projekt/${p.id}">${esc(p.name)}</a> · ${esc(fName(p.firmaId))}</div></div>${t.faellig ? `<span class="b ${t.faellig < d ? 'red' : t.faellig <= addDays(d, 7) ? 'warn' : ''}">${fmt(t.faellig)}</span>` : ''}</div>`).join('')}</div>` : '<div class="empty">Keine offenen To-dos</div>'}</div>
-    <div class="card"><h2>Projekte in Arbeit</h2>${aktiv.length ? `<div class="list">${aktiv.map(p => { const ol = offeneLogs().filter(l => l.projektId === p.id); return `<a class="li" href="#/projekt/${p.id}" style="text-decoration:none;color:inherit"><div class="grow"><b>${esc(p.name)}</b><div class="small muted">${esc(fName(p.firmaId))}</div></div><span class="small muted">${hm(sumMin(ol))} h offen</span></a>`; }).join('')}</div>` : '<div class="empty">Keine Projekte in Arbeit</div>'}</div>
+    <div class="card"><h2>Aktive Projekte</h2>${aktiv.length ? `<div class="list">${aktiv.map(p => { const ol = offeneLogs().filter(l => l.projektId === p.id); return `<a class="li" href="#/projekt/${p.id}" style="text-decoration:none;color:inherit"><div class="grow"><b>${esc(p.name)}</b><div class="small muted">${esc(fName(p.firmaId))}</div></div><span class="small muted" style="margin-right:6px">${hm(sumMin(ol))} h offen</span><span class="b ${STC[p.status] || ''}">${esc(p.status)}</span></a>`; }).join('')}</div>` : '<div class="empty">Keine aktiven Projekte</div>'}</div>
   </div>
   <div class="card"><h2>Zuletzt erfasst</h2>${logTable(letzte, false)}</div>`;
 }
@@ -295,14 +295,14 @@ function logFilter() {
 function vLogs() {
   const q = UI.qa, ls = logFilter(), tot = sumMin(ls), ver = sumMin(ls.filter(l => l.verrechenbar !== false)), wert = ls.reduce((a, l) => a + logWert(l), 0);
   return `<div class="head"><h1>Zeiterfassung</h1><button class="btn" data-act="csv">CSV-Export</button></div>
-  <form class="card" id="quick" autocomplete="off"><div class="quick">
+  <div class="card">${cardHead('Neue Tätigkeit', 'quick')}${addForm('quick', `<form id="quick" autocomplete="off"><div class="quick">
     ${fld('Datum', `<input type="date" name="datum" data-qa="datum" value="${esc(q.datum)}">`)}
     ${fld('Projekt', `<select name="projektId" data-qa="projektId">${projektOptions(q.projektId)}</select>`)}
     ${fld('Tätigkeit', `<input type="text" name="text" data-qa="text" value="${esc(q.text)}" placeholder="Was hast du gemacht?">`)}
     ${fld('Dauer', `<input type="text" name="dauer" data-qa="dauer" value="${esc(q.dauer)}" placeholder="1:30">`)}
     <label class="chk" style="padding-bottom:10px"><input type="checkbox" name="verrechenbar" data-qa="verrechenbar" ${q.verrechenbar ? 'checked' : ''}>verrechenbar</label>
     <button class="btn pri" type="submit" style="height:38px">Erfassen</button>
-  </div><div class="small muted" style="margin-top:6px">Dauer: 1:30 oder 1.5 (Stunden) oder 45m (Minuten)</div></form>
+  </div><div class="small muted" style="margin-top:6px">Dauer: 1:30 oder 1.5 (Stunden) oder 45m (Minuten)</div></form>`)}</div>
   <div class="filters">
     ${fld('Monat', `<input type="month" data-ui="logMonat" value="${esc(UI.logMonat)}">`)}
     ${fld('Firma', `<select data-ui="logFirma">${firmaOptions(UI.logFirma, 'Alle Firmen')}</select>`)}
@@ -338,7 +338,7 @@ function quickSave(form) {
   if (!o.projektId) return toast('Projekt wählen');
   if (!min) return toast('Dauer fehlt oder ungültig (z.B. 1:30)');
   put('logs', { datum: o.datum || today(), projektId: o.projektId, text: (o.text || '').trim(), minuten: min, verrechenbar: !!o.verrechenbar });
-  UI.qa = { ...UI.qa, text: '', dauer: '' }; document.activeElement && document.activeElement.blur(); toast('Erfasst'); schedule();
+  UI.qa = { ...UI.qa, text: '', dauer: '' }; UI.open.quick = false; document.activeElement && document.activeElement.blur(); toast('Erfasst'); schedule();
 }
 function csvExport() {
   const ls = logFilter().sort((a, b) => a.datum.localeCompare(b.datum));
