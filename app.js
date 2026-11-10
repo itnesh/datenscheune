@@ -1,5 +1,5 @@
 // Datenscheune - Zeiterfassung, Projekte, Rechnungen. Daten lokal oder in Firestore (datenscheune/main/...).
-const VERSION = '0.8.0';
+const VERSION = '0.8.1';
 
 /* ---------- Helfer ---------- */
 const $ = (s, el = document) => el.querySelector(s);
@@ -466,7 +466,7 @@ function vProjekt(id) {
   </div>
   <div class="card">${cardHead('Links &amp; Dokumente', 'link')}${addForm('link', `<form class="frow" data-form="linkAdd" data-p="${id}" style="grid-template-columns:1fr 2fr auto" autocomplete="off"><input type="text" name="titel" placeholder="Titel"><input type="url" name="url" placeholder="https://..."><button class="btn pri">Hinzufügen</button></form>`)}
     ${(p.links || []).length ? `<div class="list">${p.links.map(k => { const t = linkTyp(k.url); return `<div class="li"><span class="ntyp ${t.c}" title="${t.n}">${t.i}</span><div class="grow"><a href="${esc(k.url)}" target="_blank" rel="noopener" title="${esc(k.url)}">${esc(k.titel || linkHost(k.url))}</a><div class="small muted">${t.n}</div></div>${x('linkDel', k.id)}</div>`; }).join('')}</div>` : '<div class="empty">Keine Links</div>'}</div>
-  <div class="card">${cardHead('Notizen / Protokolle', 'notiz')}${addForm('notiz', `<form data-form="notizAdd" data-p="${id}" autocomplete="off"><div class="frow" style="grid-template-columns:140px 120px 1fr 100px auto;align-items:end">${fld('Datum', `<input type="date" name="datum" value="${today()}">`)}${fld('Art', `<select name="typ">${typOptions('Meeting')}</select>`)}${fld('Titel (erscheint als Tätigkeit)', '<input type="text" name="titel" placeholder="z.B. Call Markus">')}${fld('Dauer', '<input type="text" name="dauer" placeholder="0:30">')}<label class="chk" style="padding-bottom:10px"><input type="checkbox" name="verrechenbar" checked>verrechenbar</label></div>
+  <div class="card">${cardHead('Notizen / Protokolle', 'notiz')}${addForm('notiz', `<form data-form="notizAdd" data-p="${id}" autocomplete="off"><div class="frow" style="grid-template-columns:140px 120px 1.3fr 90px 1fr auto;align-items:end">${fld('Datum', `<input type="date" name="datum" value="${today()}">`)}${fld('Art', `<select name="typ">${typOptions('Meeting')}</select>`)}${fld('Titel (erscheint als Tätigkeit)', '<input type="text" name="titel" placeholder="z.B. Call Markus">')}${fld('Dauer', '<input type="text" name="dauer" placeholder="0:30">')}${fld('Tags', tagInput('tags', []))}<label class="chk" style="padding-bottom:10px"><input type="checkbox" name="verrechenbar" checked>verrechenbar</label></div>
       <div class="frow" style="grid-template-columns:1fr auto;align-items:end"><textarea name="text" rows="3" placeholder="Protokoll / Details ..."></textarea><button class="btn pri" style="height:38px">Erfassen</button></div>
       <div class="small muted" style="margin:-4px 0 8px">Mit Dauer wird automatisch eine Tätigkeit erstellt (Text = Titel). Dauer leer oder 0 = nur Protokoll.</div></form>`)}
     ${(p.notizen || []).length ? `<div class="list">${[...p.notizen].sort((a, b) => b.datum.localeCompare(a.datum)).map(n => { const t = notizTyp(n); return `<div class="li click" style="align-items:flex-start" data-act="notizEdit" data-p="${id}" data-t="${n.id}"><span class="ntyp" title="${t}">${NTYP[t]}</span><div style="width:84px" class="small"><b>${fmt(n.datum)}</b><div class="muted">${t}</div></div><div class="grow">${n.titel ? `<b>${esc(n.titel)}</b>` : ''}${n.text ? `<div style="white-space:pre-wrap">${esc(n.text)}</div>` : ''}</div>${notizLogBadge(n)}</div>`; }).join('')}</div>` : ''}</div>
@@ -480,11 +480,12 @@ function notizSpeichern(pid, alt, o) {
   const titel = (o.titel || '').trim(), text = (o.text || '').trim();
   if (!titel && !text) { toast('Titel oder Text erfassen'); return false; }
   if (min && !titel) { toast('Für die Tätigkeit einen Titel erfassen'); return false; }
+  let tags = []; try { tags = JSON.parse(o.tags || '[]'); } catch (e) { }
   const n = { ...(alt || {}), id: (alt && alt.id) || uid(), datum: o.datum || today(), typ: o.typ || 'Notiz', titel, text };
   let log = n.logId && S.logs.find(l => l.id === n.logId);
   if (min) {
-    if (log && log.rechnungId) { if (log.minuten !== min) toast('Tätigkeit bereits verrechnet - Dauer bleibt'); put('logs', { ...log, text: titel }); }
-    else { log = put('logs', { tags: [], ...(log || {}), datum: n.datum, projektId: pid, text: titel, minuten: min, verrechenbar: !!o.verrechenbar, notizId: n.id }); n.logId = log.id; }
+    if (log && log.rechnungId) { if (log.minuten !== min) toast('Tätigkeit bereits verrechnet - Dauer bleibt'); put('logs', { ...log, text: titel, tags }); }
+    else { log = put('logs', { tags: [], ...(log || {}), datum: n.datum, projektId: pid, text: titel, minuten: min, tags, verrechenbar: !!o.verrechenbar, notizId: n.id }); n.logId = log.id; }
   } else if (log) {
     if (log.rechnungId) toast('Tätigkeit bereits verrechnet - bleibt bestehen');
     else { del('logs', log.id); n.logId = ''; }
@@ -497,7 +498,7 @@ function notizModal(pid, n) {
   modal({
     title: 'Protokoll bearbeiten', wide: true,
     body: `<div class="frow c4">${fld('Datum', inp('datum', n.datum, 'date'))}${fld('Art', `<select name="typ">${typOptions(notizTyp(n))}</select>`)}${fld('Dauer', inp('dauer', log ? hm(log.minuten) : '', 'text', 'placeholder="0:30"'))}<label class="chk" style="align-self:end;padding-bottom:10px"><input type="checkbox" name="verrechenbar" ${!log || log.verrechenbar !== false ? 'checked' : ''}>verrechenbar</label></div>
-      <div class="frow">${fld('Titel (erscheint als Tätigkeit)', inp('titel', n.titel || ''))}</div>
+      <div class="frow c2">${fld('Titel (erscheint als Tätigkeit)', inp('titel', n.titel || ''))}${fld('Tags (für Tätigkeit)', tagInput('tags', log ? log.tags || [] : []))}</div>
       <div class="frow">${fld('Protokoll / Details', `<textarea name="text" rows="10">${esc(n.text || '')}</textarea>`)}</div>
       ${log && log.rechnungId ? '<div class="note">Die Tätigkeit ist bereits verrechnet. Dauer und Löschen sind gesperrt.</div>' : '<div class="small muted">Dauer leer oder 0 = nur Protokoll, eine verknüpfte Tätigkeit wird entfernt.</div>'}`,
     onSave: o => notizSpeichern(pid, n, o),
@@ -817,7 +818,7 @@ document.addEventListener('submit', e => {
   const o = Object.fromEntries(new FormData(f)), pid = f.dataset.p;
   if (f.dataset.form === 'todoAdd' && o.text.trim()) pListe(pid, 'todos', l => [...l, { id: uid(), text: o.text.trim(), faellig: o.faellig || '', erledigt: false }]);
   if (f.dataset.form === 'linkAdd' && o.url.trim()) pListe(pid, 'links', l => [...l, { id: uid(), titel: o.titel.trim(), url: /^https?:\/\//.test(o.url.trim()) ? o.url.trim() : 'https://' + o.url.trim() }]);
-  if (f.dataset.form === 'notizAdd' && notizSpeichern(pid, null, o) === false) return;
+  if (f.dataset.form === 'notizAdd') { const tt = $('.tagtxt', f); if (tt && tt.value.trim()) { const t = JSON.parse(o.tags || '[]'); if (!t.includes(tt.value.trim())) t.push(tt.value.trim()); o.tags = JSON.stringify(t); } if (notizSpeichern(pid, null, o) === false) return; }
   if (f.dataset.form === 'logAdd') {
     const min = parseDauer(o.dauer), tt = $('.tagtxt', f); let tags = JSON.parse(o.tags || '[]'); if (tt && tt.value.trim() && !tags.includes(tt.value.trim())) tags.push(tt.value.trim());
     if (!min) return toast('Dauer fehlt oder ungültig (z.B. 1:30)');
