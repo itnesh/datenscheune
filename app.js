@@ -259,7 +259,7 @@ function vDashboard() {
   const aktiv = S.projekte.filter(p => p.status !== 'Done').sort((a, b) => STATUS.indexOf(a.status) - STATUS.indexOf(b.status) || a.name.localeCompare(b.name, 'de'));
   const letzte = [...S.logs].sort((a, b) => (b.datum + (b.geaendert || '')).localeCompare(a.datum + (a.geaendert || ''))).slice(0, 8);
   const leer = !S.firmen.length ? `<div class="card"><h2>Erste Schritte</h2><ol style="margin:0;padding-left:18px;line-height:1.9"><li><a href="#/einstellungen">Einstellungen</a>: eigene Adresse und IBAN erfassen</li><li><a href="#/firmen">Firma</a> mit Ansprechpartner und Stundensatz anlegen</li><li><a href="#/projekte">Projekt</a> anlegen</li><li>In der <a href="#/logs">Zeiterfassung</a> Tätigkeiten erfassen</li><li><a href="#/rechnungen">Rechnung</a> erstellen</li></ol></div>` : '';
-  return `<div class="head"><h1>Dashboard<span class="sub">${fmt(d)}</span></h1><button class="btn pri" data-act="logNeu">+ Tätigkeit</button></div>${leer}
+  return `<div class="head"><h1>Dashboard</h1></div>${leer}
   <div class="kpis">
     <div class="kpi"><span>Diese Woche</span><b>${hm(wMin)} h</b></div>
     <div class="kpi"><span>${MON[+ms.slice(5) - 1]}</span><b>${hm(mMin)} h</b></div>
